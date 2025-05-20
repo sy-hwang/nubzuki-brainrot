@@ -50,11 +50,11 @@ class Scene {
     loadModels() {
         const loader = new GLTFLoader();
         
-        // 여기에 GLB 파일 경로들을 추가하세요
         const modelPaths = [
-            // 'models/model1.glb',
-            // 'models/model2.glb',
-            // 'models/model3.glb'
+            'models/banini.glb',
+            'models/lirili.glb',
+            'models/sahur.glb',
+            'models/tra.glb'
         ];
 
         modelPaths.forEach((path, index) => {
