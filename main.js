@@ -19,18 +19,36 @@ class Scene {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.5;
         this.container.appendChild(this.renderer.domElement);
+
+        // 배경색 설정
+        this.scene.background = new THREE.Color(0xE0FFFF);
 
         // 카메라 위치 설정
         this.camera.position.set(0, 5, 10);
 
         // 조명 설정
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
         this.scene.add(ambientLight);
 
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 2.0);
         directionalLight.position.set(5, 5, 5);
         this.scene.add(directionalLight);
+
+        // 추가 조명들
+        const pointLight1 = new THREE.PointLight(0xffffff, 1.5);
+        pointLight1.position.set(-5, 5, -5);
+        this.scene.add(pointLight1);
+
+        const pointLight2 = new THREE.PointLight(0xffffff, 1.5);
+        pointLight2.position.set(0, 5, -5);
+        this.scene.add(pointLight2);
+
+        const pointLight3 = new THREE.PointLight(0xffffff, 1.5);
+        pointLight3.position.set(5, 5, -5);
+        this.scene.add(pointLight3);
 
         // 컨트롤 설정
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -64,6 +82,21 @@ class Scene {
                     const model = gltf.scene;
                     // 모델 위치 조정
                     model.position.set(index * 2, 0, 0);
+                    
+                    // 모델의 모든 메시에 대해 재질 설정
+                    model.traverse((child) => {
+                        if (child.isMesh) {
+                            // 재질이 있다면 설정
+                            if (child.material) {
+                                child.material.needsUpdate = true;
+                                // 재질의 기본 설정
+                                child.material.metalness = 0.5;
+                                child.material.roughness = 0.5;
+                                child.material.envMapIntensity = 1.0;
+                            }
+                        }
+                    });
+
                     this.scene.add(model);
                     this.models.push(model);
                 },
