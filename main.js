@@ -6,10 +6,15 @@ class Scene {
     constructor() {
         this.container = document.querySelector('#scene-container');
         this.scene = new THREE.Scene();
-        this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.controls = null;
         this.models = [];
+        this.raycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.originalCameraPosition = null;
+        this.originalControlsTarget = null;
+        this.selectedModel = null;
         
         this.init();
     }
@@ -27,7 +32,7 @@ class Scene {
         this.scene.background = new THREE.Color(0xE0FFFF);
 
         // 카메라 위치 설정
-        this.camera.position.set(0, 5, 10);
+        this.camera.position.set(4.5, 2, 6);
 
         // 조명 설정
         const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
@@ -54,15 +59,100 @@ class Scene {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
+        this.controls.target.set(4.5, 0, 0);
+        this.controls.maxDistance = 6; // 최대 줌 거리
 
         // 윈도우 리사이즈 이벤트 처리
         window.addEventListener('resize', () => this.onWindowResize());
+
+        // 마우스 이벤트 리스너 추가
+        this.container.addEventListener('click', (event) => this.onMouseClick(event));
 
         // GLB 파일 로드
         this.loadModels();
 
         // 애니메이션 시작
         this.animate();
+    }
+
+    onMouseClick(event) {
+        // 마우스 위치를 정규화된 장치 좌표로 변환
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        // Raycaster 업데이트
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+
+        // 모델과의 교차 확인
+        const intersects = this.raycaster.intersectObjects(this.models, true);
+
+        if (intersects.length > 0) {
+            // 모델이 클릭된 경우
+            const clickedModel = this.findParentModel(intersects[0].object);
+            if (clickedModel) {
+                this.moveCameraToModel(clickedModel);
+            }
+        } else {
+            // 빈 공간이 클릭된 경우
+            this.returnCameraToOriginalPosition();
+        }
+    }
+
+    findParentModel(object) {
+        let current = object;
+        while (current.parent) {
+            if (this.models.includes(current)) {
+                return current;
+            }
+            current = current.parent;
+        }
+        return null;
+    }
+
+    moveCameraToModel(model) {
+        // 이전에 선택된 모델이 있다면 카메라를 원위치로
+        if (this.selectedModel) {
+            this.returnCameraToOriginalPosition();
+        }
+
+        // 현재 카메라 위치와 타겟 저장
+        if (!this.originalCameraPosition) {
+            this.originalCameraPosition = this.camera.position.clone();
+            this.originalControlsTarget = this.controls.target.clone();
+        }
+
+        // 선택된 모델 저장
+        this.selectedModel = model;
+
+        // 모델의 바운딩 박스 계산
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        // 모델의 크기에 따라 카메라 거리 계산
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const distance = maxDim * 1.5; // 모델 크기의 0.8배 거리로 더 가깝게 설정
+
+        // 카메라 위치 설정
+        this.camera.position.set(
+            center.x,
+            center.y,
+            center.z + distance
+        );
+
+        // 컨트롤 타겟을 모델 중심으로 설정
+        this.controls.target.copy(center);
+        this.controls.update();
+    }
+
+    returnCameraToOriginalPosition() {
+        if (this.originalCameraPosition && this.originalControlsTarget) {
+            // 카메라를 원래 위치로 이동
+            this.camera.position.copy(this.originalCameraPosition);
+            this.controls.target.copy(this.originalControlsTarget);
+            this.controls.update();
+            this.selectedModel = null;
+        }
     }
 
     loadModels() {
@@ -80,8 +170,8 @@ class Scene {
                 path,
                 (gltf) => {
                     const model = gltf.scene;
-                    // 모델 위치 조정
-                    model.position.set(index * 2, 0, 0);
+                    // 모델 위치 조정 (간격을 3으로 조정)
+                    model.position.set(index * 3, 0, 0);
                     
                     // 모델의 모든 메시에 대해 재질 설정
                     model.traverse((child) => {
