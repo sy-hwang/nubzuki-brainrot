@@ -15,6 +15,13 @@ class Scene {
         this.originalCameraPosition = null;
         this.originalControlsTarget = null;
         this.selectedModel = null;
+        this.isCameraMoving = false;
+        this.cameraStartPosition = new THREE.Vector3();
+        this.cameraEndPosition = new THREE.Vector3();
+        this.controlsStartTarget = new THREE.Vector3();
+        this.controlsEndTarget = new THREE.Vector3();
+        this.cameraMoveStartTime = 0;
+        this.cameraMoveDuration = 600; // 0.6초로 단축
         
         this.init();
     }
@@ -131,26 +138,36 @@ class Scene {
 
         // 모델의 크기에 따라 카메라 거리 계산
         const maxDim = Math.max(size.x, size.y, size.z);
-        const distance = maxDim * 1.5; // 모델 크기의 0.8배 거리로 더 가깝게 설정
+        const distance = maxDim * 1.5;
 
-        // 카메라 위치 설정
-        this.camera.position.set(
+        // 시작 위치와 목표 위치 설정
+        this.cameraStartPosition.copy(this.camera.position);
+        this.cameraEndPosition.set(
             center.x,
             center.y,
             center.z + distance
         );
 
-        // 컨트롤 타겟을 모델 중심으로 설정
-        this.controls.target.copy(center);
-        this.controls.update();
+        this.controlsStartTarget.copy(this.controls.target);
+        this.controlsEndTarget.copy(center);
+
+        // 카메라 이동 시작
+        this.isCameraMoving = true;
+        this.cameraMoveStartTime = Date.now();
     }
 
     returnCameraToOriginalPosition() {
         if (this.originalCameraPosition && this.originalControlsTarget) {
-            // 카메라를 원래 위치로 이동
-            this.camera.position.copy(this.originalCameraPosition);
-            this.controls.target.copy(this.originalControlsTarget);
-            this.controls.update();
+            // 시작 위치와 목표 위치 설정
+            this.cameraStartPosition.copy(this.camera.position);
+            this.cameraEndPosition.copy(this.originalCameraPosition);
+
+            this.controlsStartTarget.copy(this.controls.target);
+            this.controlsEndTarget.copy(this.originalControlsTarget);
+
+            // 카메라 이동 시작
+            this.isCameraMoving = true;
+            this.cameraMoveStartTime = Date.now();
             this.selectedModel = null;
         }
     }
@@ -209,7 +226,40 @@ class Scene {
     animate() {
         requestAnimationFrame(() => this.animate());
 
-        // 모델 애니메이션 (필요한 경우)
+        // 카메라 이동 애니메이션
+        if (this.isCameraMoving) {
+            const currentTime = Date.now();
+            const elapsedTime = currentTime - this.cameraMoveStartTime;
+            const progress = Math.min(elapsedTime / this.cameraMoveDuration, 1);
+
+            // 부드러운 이징 함수 적용 (easeInOutCubic)
+            const easedProgress = progress < 0.5
+                ? 4 * progress * progress * progress
+                : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+            // 카메라 위치 보간
+            this.camera.position.lerpVectors(
+                this.cameraStartPosition,
+                this.cameraEndPosition,
+                easedProgress
+            );
+
+            // 컨트롤 타겟 보간
+            this.controls.target.lerpVectors(
+                this.controlsStartTarget,
+                this.controlsEndTarget,
+                easedProgress
+            );
+
+            this.controls.update();
+
+            // 애니메이션 완료 체크
+            if (progress >= 1) {
+                this.isCameraMoving = false;
+            }
+        }
+
+        // 모델 애니메이션
         this.models.forEach(model => {
             model.rotation.y += 0.005;
         });
