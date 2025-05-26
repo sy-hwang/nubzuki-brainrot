@@ -25,6 +25,10 @@ class Scene {
         this.isRotating = false;
         this.rotateButton = null;
         this.isWireframe = false;
+        this.dragging = false;
+        this.dragStart2D = { x: 0, y: 0 };
+        this.dragEnd2D = { x: 0, y: 0 };
+        this.dragBoxDiv = null;
         
         this.init();
     }
@@ -84,6 +88,13 @@ class Scene {
 
         // 마우스 이벤트 리스너 추가
         this.container.addEventListener('click', (event) => this.onMouseClick(event));
+
+        // 드래그 박스용 div 생성
+        this.createDragBoxDiv();
+        // 마우스 드래그 이벤트 리스너 추가
+        this.container.addEventListener('mousedown', (e) => this.handleDragStart(e));
+        window.addEventListener('mousemove', (e) => this.handleDragMove(e));
+        window.addEventListener('mouseup', (e) => this.handleDragEnd(e));
 
         // GLB 파일 로드
         this.loadModels();
@@ -256,6 +267,56 @@ class Scene {
         });
 
         this.container.appendChild(button);
+    }
+
+    createDragBoxDiv() {
+        this.dragBoxDiv = document.createElement('div');
+        this.dragBoxDiv.style.position = 'fixed';
+        this.dragBoxDiv.style.border = '2px solid #00ff00';
+        this.dragBoxDiv.style.background = 'rgba(0,255,0,0.15)';
+        this.dragBoxDiv.style.pointerEvents = 'none';
+        this.dragBoxDiv.style.display = 'none';
+        this.dragBoxDiv.style.zIndex = '2000';
+        document.body.appendChild(this.dragBoxDiv);
+    }
+
+    handleDragStart(event) {
+        // 모델이 선택된 상태에서만 드래그 시작
+        if (!this.selectedModel) return;
+        // 마우스 왼쪽 버튼만
+        if (event.button !== 0) return;
+        this.dragging = true;
+        this.dragStart2D = { x: event.clientX, y: event.clientY };
+        this.dragEnd2D = { x: event.clientX, y: event.clientY };
+        this.updateDragBoxDiv();
+        this.dragBoxDiv.style.display = 'block';
+    }
+
+    handleDragMove(event) {
+        if (!this.dragging) return;
+        this.dragEnd2D = { x: event.clientX, y: event.clientY };
+        this.updateDragBoxDiv();
+    }
+
+    handleDragEnd(event) {
+        if (!this.dragging) return;
+        this.dragging = false;
+        this.dragBoxDiv.style.display = 'none';
+    }
+
+    updateDragBoxDiv() {
+        const x1 = this.dragStart2D.x;
+        const y1 = this.dragStart2D.y;
+        const x2 = this.dragEnd2D.x;
+        const y2 = this.dragEnd2D.y;
+        const left = Math.min(x1, x2);
+        const top = Math.min(y1, y2);
+        const width = Math.abs(x2 - x1);
+        const height = Math.abs(y2 - y1);
+        this.dragBoxDiv.style.left = left + 'px';
+        this.dragBoxDiv.style.top = top + 'px';
+        this.dragBoxDiv.style.width = width + 'px';
+        this.dragBoxDiv.style.height = height + 'px';
     }
 
     onMouseClick(event) {
