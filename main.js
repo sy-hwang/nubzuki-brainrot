@@ -39,7 +39,7 @@ class Scene {
         this.scene.background = new THREE.Color(0xE0FFFF);
 
         // 카메라 위치 설정
-        this.camera.position.set(4.5, 2, 6);
+        this.camera.position.set(4.5, 1, 6);
 
         // 조명 설정
         const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
