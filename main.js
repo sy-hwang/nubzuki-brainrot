@@ -22,6 +22,8 @@ class Scene {
         this.controlsEndTarget = new THREE.Vector3();
         this.cameraMoveStartTime = 0;
         this.cameraMoveDuration = 600;
+        this.isRotating = false;
+        this.rotateButton = null;
         
         this.init();
     }
@@ -71,6 +73,8 @@ class Scene {
 
         // Reset Camera 버튼 추가
         this.createResetButton();
+        // Rotate Object 버튼 추가
+        this.createRotateButton();
 
         // 윈도우 리사이즈 이벤트 처리
         window.addEventListener('resize', () => this.onWindowResize());
@@ -90,7 +94,7 @@ class Scene {
         button.textContent = 'Reset Camera';
         button.style.position = 'absolute';
         button.style.top = '20px';
-        button.style.right = '20px';
+        button.style.left = '20px';
         button.style.padding = '10px 20px';
         button.style.backgroundColor = '#ffffff';
         button.style.border = '1px solid #cccccc';
@@ -103,6 +107,73 @@ class Scene {
         });
         
         this.container.appendChild(button);
+    }
+
+    createRotateButton() {
+        this.rotateButton = document.createElement('div');
+        this.rotateButton.style.position = 'absolute';
+        this.rotateButton.style.bottom = '20px';
+        this.rotateButton.style.left = '20px';
+        this.rotateButton.style.width = '50px';
+        this.rotateButton.style.height = '50px';
+        this.rotateButton.style.backgroundColor = '#ffffff';
+        this.rotateButton.style.border = '2px solid #cccccc';
+        this.rotateButton.style.borderRadius = '50%';
+        this.rotateButton.style.cursor = 'pointer';
+        this.rotateButton.style.zIndex = '1000';
+        this.rotateButton.style.display = 'none';
+        this.rotateButton.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+        
+        // rotate 텍스트 추가
+        const text = document.createElement('div');
+        text.textContent = 'rotate';
+        text.style.position = 'absolute';
+        text.style.top = '50%';
+        text.style.left = '50%';
+        text.style.transform = 'translate(-50%, -50%)';
+        text.style.fontSize = '12px';
+        text.style.color = '#666';
+        text.style.fontWeight = 'bold';
+        this.rotateButton.appendChild(text);
+        
+        let lastMouseX = 0;
+        let lastMouseY = 0;
+        let rotationSpeed = 0.01;
+        
+        this.rotateButton.addEventListener('mousedown', (event) => {
+            if (this.selectedModel) {
+                this.isRotating = true;
+                this.rotateButton.style.backgroundColor = '#e0e0e0';
+                lastMouseX = event.clientX;
+                lastMouseY = event.clientY;
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (this.isRotating) {
+                this.isRotating = false;
+                this.rotateButton.style.backgroundColor = '#ffffff';
+            }
+        });
+
+        document.addEventListener('mousemove', (event) => {
+            if (this.isRotating && this.selectedModel) {
+                const deltaX = event.clientX - lastMouseX;
+                const deltaY = event.clientY - lastMouseY;
+                
+                // 마우스 이동에 따라 모델 회전
+                this.selectedModel.rotation.y += deltaX * rotationSpeed;
+                this.selectedModel.rotation.x += deltaY * rotationSpeed;
+                
+                // 회전 각도 제한 (선택사항)
+                this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
+                
+                lastMouseX = event.clientX;
+                lastMouseY = event.clientY;
+            }
+        });
+        
+        this.container.appendChild(this.rotateButton);
     }
 
     onMouseClick(event) {
@@ -171,6 +242,9 @@ class Scene {
 
         // 모델 선택 시 컨트롤 비활성화
         this.controls.enabled = false;
+        
+        // Rotate Object 버튼 표시
+        this.rotateButton.style.display = 'block';
     }
 
     returnCameraToOriginalPosition() {
@@ -188,6 +262,9 @@ class Scene {
 
         // 컨트롤 다시 활성화
         this.controls.enabled = true;
+        
+        // Rotate Object 버튼 숨기기
+        this.rotateButton.style.display = 'none';
     }
 
     loadModels() {
