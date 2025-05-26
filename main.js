@@ -105,7 +105,8 @@ class Scene {
         button.style.cursor = 'pointer';
         button.style.zIndex = '1000';
         
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation(); // 버튼 클릭 시 씬 클릭 이벤트 방지
             this.returnCameraToOriginalPosition();
         });
         
@@ -207,7 +208,8 @@ class Scene {
         button.style.cursor = 'pointer';
         button.style.zIndex = '1000';
 
-        button.addEventListener('click', () => {
+        button.addEventListener('click', (event) => {
+            event.stopPropagation(); // 버튼 클릭 시 씬 클릭 이벤트 방지
             this.isWireframe = !this.isWireframe;
             this.models.forEach(model => {
                 model.traverse((child) => {
@@ -268,12 +270,14 @@ class Scene {
         const intersects = this.raycaster.intersectObjects(this.models, true);
 
         if (intersects.length > 0) {
-            // 모델이 클릭된 경우
             const clickedModel = this.findParentModel(intersects[0].object);
             if (clickedModel) {
+                // 이미 선택된 모델이면 아무 동작도 하지 않음
+                if (this.selectedModel === clickedModel) return;
                 this.moveCameraToModel(clickedModel);
             }
         }
+        // else: 아무 동작도 하지 않음
     }
 
     findParentModel(object) {
@@ -331,24 +335,20 @@ class Scene {
 
     returnCameraToOriginalPosition() {
         // 시작 위치와 목표 위치 설정
-        this.cameraStartPosition.copy(this.camera.position);
-        this.cameraEndPosition.copy(this.originalCameraPosition);
-
-        this.controlsStartTarget.copy(this.controls.target);
-        this.controlsEndTarget.copy(this.originalControlsTarget);
-
-        // 카메라 이동 시작
-        this.isCameraMoving = true;
-        this.cameraMoveStartTime = Date.now();
+        this.camera.position.copy(this.originalCameraPosition);
+        this.controls.target.copy(this.originalControlsTarget);
+        this.controls.update();
         this.selectedModel = null;
 
         // 컨트롤 다시 활성화
         this.controls.enabled = true;
         
         // Rotate 버튼 비활성화
-        this.rotateButton.style.backgroundColor = '#cccccc';
-        this.rotateButton.style.border = '2px solid #999999';
-        this.rotateButton.style.cursor = 'not-allowed';
+        if (this.rotateButton) {
+            this.rotateButton.style.backgroundColor = '#cccccc';
+            this.rotateButton.style.border = '2px solid #999999';
+            this.rotateButton.style.cursor = 'not-allowed';
+        }
     }
 
     loadModels() {
