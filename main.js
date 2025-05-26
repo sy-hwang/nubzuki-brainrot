@@ -32,6 +32,7 @@ class Scene {
         this.selectedVertices = new Set();
         this.vertexCountDisplay = null;
         this.fixedVertices = new Set();
+        this.draggableVertices = new Set();
         this.isDraggable = false;
         this.isDeforming = false;
         this.currentMode = null;
@@ -313,7 +314,12 @@ class Scene {
 
     updateVertexCountDisplay() {
         if (this.vertexCountDisplay) {
-            this.vertexCountDisplay.textContent = `선택된 정점: ${this.selectedVertices.size}개`;
+            const fixedCount = this.fixedVertices.size;
+            const draggableCount = this.draggableVertices.size;
+            this.vertexCountDisplay.innerHTML = `
+                <div style="color: #4CAF50;">Fixed vertices: ${fixedCount}</div>
+                <div style="color: #f44336;">Draggable vertices: ${draggableCount}</div>
+            `;
         }
     }
 
@@ -329,12 +335,15 @@ class Scene {
             target === this.rotateButton || target.closest('div[style*="position: absolute"]')) {
             return;
         }
-        
-        this.dragging = true;
-        this.dragStart2D = { x: event.clientX, y: event.clientY };
-        this.dragEnd2D = { x: event.clientX, y: event.clientY };
-        this.updateDragBoxDiv();
-        this.dragBoxDiv.style.display = 'block';
+
+        // fixed, draggable, deselect 모드에서만 드래그 영역 표시
+        if (this.currentMode === 'fixed' || this.currentMode === 'draggable' || this.currentMode === 'deselect') {
+            this.dragging = true;
+            this.dragStart2D = { x: event.clientX, y: event.clientY };
+            this.dragEnd2D = { x: event.clientX, y: event.clientY };
+            this.updateDragBoxDiv();
+            this.dragBoxDiv.style.display = 'block';
+        }
     }
 
     handleDragMove(event) {
@@ -349,7 +358,7 @@ class Scene {
         this.dragBoxDiv.style.display = 'none';
 
         // 드래그 영역 안의 정점들을 선택
-        if (this.selectedModel) {
+        if (this.selectedModel && (this.currentMode === 'fixed' || this.currentMode === 'draggable')) {
             const dragBox = {
                 minX: Math.min(this.dragStart2D.x, this.dragEnd2D.x),
                 maxX: Math.max(this.dragStart2D.x, this.dragEnd2D.x),
@@ -358,16 +367,11 @@ class Scene {
             };
 
             // 이전 선택 초기화
-            this.selectedVertices.clear();
-            this.selectedModel.traverse((child) => {
-                if (child.isMesh && child.material.isShaderMaterial) {
-                    const selectedAttr = child.geometry.attributes.selected;
-                    for (let i = 0; i < selectedAttr.count; i++) {
-                        selectedAttr.setX(i, 0);
-                    }
-                    selectedAttr.needsUpdate = true;
-                }
-            });
+            if (this.currentMode === 'fixed') {
+                this.fixedVertices.clear();
+            } else if (this.currentMode === 'draggable') {
+                this.draggableVertices.clear();
+            }
 
             this.selectedModel.traverse((child) => {
                 if (child.isMesh && child.material.isShaderMaterial) {
@@ -399,8 +403,13 @@ class Scene {
                         // 드래그 영역 안에 있는 정점 선택
                         if (x >= dragBox.minX && x <= dragBox.maxX &&
                             y >= dragBox.minY && y <= dragBox.maxY) {
-                            selectedAttr.setX(i, 1);
-                            this.selectedVertices.add(vertex);
+                            if (this.currentMode === 'fixed') {
+                                this.fixedVertices.add(vertex);
+                                selectedAttr.setX(i, 1);
+                            } else if (this.currentMode === 'draggable') {
+                                this.draggableVertices.add(vertex);
+                                selectedAttr.setX(i, 2);
+                            }
                         }
                     }
                     selectedAttr.needsUpdate = true;
@@ -425,6 +434,18 @@ class Scene {
         this.dragBoxDiv.style.top = top + 'px';
         this.dragBoxDiv.style.width = width + 'px';
         this.dragBoxDiv.style.height = height + 'px';
+
+        // 현재 모드에 따라 드래그 박스 색상 변경
+        if (this.currentMode === 'fixed') {
+            this.dragBoxDiv.style.border = '2px solid #4CAF50';
+            this.dragBoxDiv.style.background = 'rgba(76, 175, 80, 0.15)';
+        } else if (this.currentMode === 'draggable') {
+            this.dragBoxDiv.style.border = '2px solid #f44336';
+            this.dragBoxDiv.style.background = 'rgba(244, 67, 54, 0.15)';
+        } else if (this.currentMode === 'deselect') {
+            this.dragBoxDiv.style.border = '2px solid #2196F3';
+            this.dragBoxDiv.style.background = 'rgba(33, 150, 243, 0.15)';
+        }
     }
 
     onMouseClick(event) {
@@ -528,11 +549,13 @@ class Scene {
         // 선택된 정점들 해제
         this.selectedVertices.clear();
         this.fixedVertices.clear();
+        this.draggableVertices.clear();
         this.models.forEach(model => {
             model.traverse((child) => {
                 if (child.isMesh && child.material.isShaderMaterial) {
                     const selectedAttr = child.geometry.attributes.selected;
                     const fixedAttr = child.geometry.attributes.fixed;
+                    const draggableAttr = child.geometry.attributes.draggable;
                     if (selectedAttr) {
                         for (let i = 0; i < selectedAttr.count; i++) {
                             selectedAttr.setX(i, 0);
@@ -544,6 +567,12 @@ class Scene {
                             fixedAttr.setX(i, 0);
                         }
                         fixedAttr.needsUpdate = true;
+                    }
+                    if (draggableAttr) {
+                        for (let i = 0; i < draggableAttr.count; i++) {
+                            draggableAttr.setX(i, 0);
+                        }
+                        draggableAttr.needsUpdate = true;
                     }
                 }
             });
@@ -597,7 +626,8 @@ class Scene {
                                 const material = new THREE.ShaderMaterial({
                                     uniforms: {
                                         color: { value: originalColor },
-                                        selectedColor: { value: new THREE.Color(0xff0000) },
+                                        fixedColor: { value: new THREE.Color(0x4CAF50) },
+                                        draggableColor: { value: new THREE.Color(0xf44336) },
                                         map: { value: originalMaterial.map },
                                         normalMap: { value: originalMaterial.normalMap },
                                         roughnessMap: { value: originalMaterial.roughnessMap },
@@ -616,7 +646,8 @@ class Scene {
                                     `,
                                     fragmentShader: `
                                         uniform vec3 color;
-                                        uniform vec3 selectedColor;
+                                        uniform vec3 fixedColor;
+                                        uniform vec3 draggableColor;
                                         uniform sampler2D map;
                                         uniform sampler2D normalMap;
                                         uniform sampler2D roughnessMap;
@@ -628,7 +659,13 @@ class Scene {
                                         void main() {
                                             vec4 texColor = texture2D(map, vUv);
                                             vec3 finalColor = texColor.rgb * color;
-                                            finalColor = mix(finalColor, selectedColor, vSelected);
+                                            
+                                            if (vSelected > 1.5) { // draggable
+                                                finalColor = mix(finalColor, draggableColor, 0.5);
+                                            } else if (vSelected > 0.5) { // fixed
+                                                finalColor = mix(finalColor, fixedColor, 0.5);
+                                            }
+                                            
                                             gl_FragColor = vec4(finalColor, texColor.a);
                                         }
                                     `,
@@ -909,19 +946,16 @@ class Scene {
     updateShaderMaterial(child) {
         if (child.material.isShaderMaterial) {
             const material = child.material;
-            material.uniforms.fixedColor = { value: new THREE.Color(0xffff00) };
-            material.uniforms.isFixed = { value: 1.0 };
+            material.uniforms.fixedColor = { value: new THREE.Color(0x4CAF50) };
+            material.uniforms.draggableColor = { value: new THREE.Color(0xf44336) };
             
             // 셰이더 코드 업데이트
             material.vertexShader = `
                 attribute float selected;
-                attribute float fixed;
                 varying float vSelected;
-                varying float vFixed;
                 varying vec2 vUv;
                 void main() {
                     vSelected = selected;
-                    vFixed = fixed;
                     vUv = uv;
                     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
                 }
@@ -929,22 +963,20 @@ class Scene {
             
             material.fragmentShader = `
                 uniform vec3 color;
-                uniform vec3 selectedColor;
                 uniform vec3 fixedColor;
+                uniform vec3 draggableColor;
                 uniform sampler2D map;
                 varying float vSelected;
-                varying float vFixed;
                 varying vec2 vUv;
 
                 void main() {
                     vec4 texColor = texture2D(map, vUv);
                     vec3 finalColor = texColor.rgb * color;
                     
-                    if (vFixed > 0.5) {
+                    if (vSelected > 1.5) { // draggable
+                        finalColor = mix(finalColor, draggableColor, 0.5);
+                    } else if (vSelected > 0.5) { // fixed
                         finalColor = mix(finalColor, fixedColor, 0.5);
-                    }
-                    if (vSelected > 0.5) {
-                        finalColor = mix(finalColor, selectedColor, 0.5);
                     }
                     
                     gl_FragColor = vec4(finalColor, texColor.a);
