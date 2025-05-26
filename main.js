@@ -285,6 +285,14 @@ class Scene {
         if (!this.selectedModel) return;
         // 마우스 왼쪽 버튼만
         if (event.button !== 0) return;
+        
+        // 버튼 위에서 드래그 시작한 경우 드래그 영역을 시각화하지 않음
+        const target = event.target;
+        if (target.tagName === 'BUTTON' || target.closest('button') || 
+            target === this.rotateButton || target.closest('div[style*="position: absolute"]')) {
+            return;
+        }
+        
         this.dragging = true;
         this.dragStart2D = { x: event.clientX, y: event.clientY };
         this.dragEnd2D = { x: event.clientX, y: event.clientY };
