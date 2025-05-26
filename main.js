@@ -29,6 +29,7 @@ class Scene {
         this.dragStart2D = { x: 0, y: 0 };
         this.dragEnd2D = { x: 0, y: 0 };
         this.dragBoxDiv = null;
+        this.selectedVertices = new Set();
         
         this.init();
     }
@@ -310,6 +311,66 @@ class Scene {
         if (!this.dragging) return;
         this.dragging = false;
         this.dragBoxDiv.style.display = 'none';
+
+        // 드래그 영역 안의 정점들을 선택
+        if (this.selectedModel) {
+            const dragBox = {
+                minX: Math.min(this.dragStart2D.x, this.dragEnd2D.x),
+                maxX: Math.max(this.dragStart2D.x, this.dragEnd2D.x),
+                minY: Math.min(this.dragStart2D.y, this.dragEnd2D.y),
+                maxY: Math.max(this.dragStart2D.y, this.dragEnd2D.y)
+            };
+
+            // 이전 선택 초기화
+            this.selectedVertices.clear();
+            this.selectedModel.traverse((child) => {
+                if (child.isMesh && child.material.isShaderMaterial) {
+                    const selectedAttr = child.geometry.attributes.selected;
+                    for (let i = 0; i < selectedAttr.count; i++) {
+                        selectedAttr.setX(i, 0);
+                    }
+                    selectedAttr.needsUpdate = true;
+                }
+            });
+
+            this.selectedModel.traverse((child) => {
+                if (child.isMesh && child.material.isShaderMaterial) {
+                    const geometry = child.geometry;
+                    const positions = geometry.attributes.position;
+                    const selectedAttr = geometry.attributes.selected;
+
+                    // 월드 변환 행렬 계산
+                    const worldMatrix = child.matrixWorld;
+                    const viewMatrix = this.camera.matrixWorldInverse;
+                    const projectionMatrix = this.camera.projectionMatrix;
+                    const viewProjectionMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+
+                    // 모든 정점을 2D로 투영
+                    for (let i = 0; i < positions.count; i++) {
+                        const vertex = new THREE.Vector3();
+                        vertex.fromBufferAttribute(positions, i);
+                        
+                        // 월드 좌표로 변환
+                        vertex.applyMatrix4(worldMatrix);
+                        
+                        // 뷰-투영 행렬 적용
+                        const projected = vertex.clone().applyMatrix4(viewProjectionMatrix);
+                        
+                        // 정규화된 좌표를 화면 좌표로 변환
+                        const x = (projected.x * 0.5 + 0.5) * window.innerWidth;
+                        const y = (-projected.y * 0.5 + 0.5) * window.innerHeight;
+
+                        // 드래그 영역 안에 있는 정점 선택
+                        if (x >= dragBox.minX && x <= dragBox.maxX &&
+                            y >= dragBox.minY && y <= dragBox.maxY) {
+                            selectedAttr.setX(i, 1);
+                            this.selectedVertices.add(vertex);
+                        }
+                    }
+                    selectedAttr.needsUpdate = true;
+                }
+            });
+        }
     }
 
     updateDragBoxDiv() {
@@ -435,19 +496,84 @@ class Scene {
                 path,
                 (gltf) => {
                     const model = gltf.scene;
-                    // 모델 위치 조정 (간격을 3으로 조정)
                     model.position.set(index * 3, 0, 0);
                     
-                    // 모델의 모든 메시에 대해 재질 설정
                     model.traverse((child) => {
                         if (child.isMesh) {
-                            // 재질이 있다면 설정
                             if (child.material) {
+                                // 버텍스 셰이더에 선택 상태를 위한 attribute 추가
+                                const geometry = child.geometry;
+                                const vertexCount = geometry.attributes.position.count;
+                                const selectedArray = new Float32Array(vertexCount).fill(0);
+                                geometry.setAttribute('selected', new THREE.BufferAttribute(selectedArray, 1));
+
+                                // 원래 재질의 속성 저장
+                                const originalMaterial = child.material;
+                                const originalColor = originalMaterial.color.clone();
+                                const originalMetalness = originalMaterial.metalness;
+                                const originalRoughness = originalMaterial.roughness;
+                                const originalEnvMapIntensity = originalMaterial.envMapIntensity;
+
+                                // 모델별 색상 밝기 조정
+                                if (index === 0 || index === 2) {
+                                    originalColor.multiplyScalar(1.5); // 1번과 3번 모델
+                                } else {
+                                    originalColor.multiplyScalar(2.0); // 2번과 4번 모델
+                                }
+
+                                // 커스텀 셰이더 머티리얼 생성
+                                const material = new THREE.ShaderMaterial({
+                                    uniforms: {
+                                        color: { value: originalColor },
+                                        selectedColor: { value: new THREE.Color(0xff0000) },
+                                        map: { value: originalMaterial.map },
+                                        normalMap: { value: originalMaterial.normalMap },
+                                        roughnessMap: { value: originalMaterial.roughnessMap },
+                                        metalnessMap: { value: originalMaterial.metalnessMap },
+                                        aoMap: { value: originalMaterial.aoMap }
+                                    },
+                                    vertexShader: `
+                                        attribute float selected;
+                                        varying float vSelected;
+                                        varying vec2 vUv;
+                                        void main() {
+                                            vSelected = selected;
+                                            vUv = uv;
+                                            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                                        }
+                                    `,
+                                    fragmentShader: `
+                                        uniform vec3 color;
+                                        uniform vec3 selectedColor;
+                                        uniform sampler2D map;
+                                        uniform sampler2D normalMap;
+                                        uniform sampler2D roughnessMap;
+                                        uniform sampler2D metalnessMap;
+                                        uniform sampler2D aoMap;
+                                        varying float vSelected;
+                                        varying vec2 vUv;
+
+                                        void main() {
+                                            vec4 texColor = texture2D(map, vUv);
+                                            vec3 finalColor = texColor.rgb * color;
+                                            finalColor = mix(finalColor, selectedColor, vSelected);
+                                            gl_FragColor = vec4(finalColor, texColor.a);
+                                        }
+                                    `,
+                                    metalness: originalMetalness,
+                                    roughness: originalRoughness,
+                                    envMapIntensity: originalEnvMapIntensity,
+                                    map: originalMaterial.map,
+                                    normalMap: originalMaterial.normalMap,
+                                    roughnessMap: originalMaterial.roughnessMap,
+                                    metalnessMap: originalMaterial.metalnessMap,
+                                    aoMap: originalMaterial.aoMap,
+                                    transparent: originalMaterial.transparent,
+                                    side: originalMaterial.side
+                                });
+
+                                child.material = material;
                                 child.material.needsUpdate = true;
-                                // 재질의 기본 설정
-                                child.material.metalness = 0.5;
-                                child.material.roughness = 0.5;
-                                child.material.envMapIntensity = 1.0;
                             }
                         }
                     });
