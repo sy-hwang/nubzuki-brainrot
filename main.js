@@ -24,6 +24,7 @@ class Scene {
         this.cameraMoveDuration = 600;
         this.isRotating = false;
         this.rotateButton = null;
+        this.isWireframe = false;
         
         this.init();
     }
@@ -75,6 +76,8 @@ class Scene {
         this.createResetButton();
         // Rotate Object 버튼 추가
         this.createRotateButton();
+        // Wireframe Toggle 버튼 추가
+        this.createWireframeButton();
 
         // 윈도우 리사이즈 이벤트 처리
         window.addEventListener('resize', () => this.onWindowResize());
@@ -116,12 +119,11 @@ class Scene {
         this.rotateButton.style.left = '20px';
         this.rotateButton.style.width = '50px';
         this.rotateButton.style.height = '50px';
-        this.rotateButton.style.backgroundColor = '#ffffff';
-        this.rotateButton.style.border = '2px solid #cccccc';
+        this.rotateButton.style.backgroundColor = '#cccccc';
+        this.rotateButton.style.border = '2px solid #999999';
         this.rotateButton.style.borderRadius = '50%';
-        this.rotateButton.style.cursor = 'pointer';
+        this.rotateButton.style.cursor = 'not-allowed';
         this.rotateButton.style.zIndex = '1000';
-        this.rotateButton.style.display = 'none';
         this.rotateButton.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
         
         // rotate 텍스트 추가
@@ -139,6 +141,20 @@ class Scene {
         let lastMouseX = 0;
         let lastMouseY = 0;
         let rotationSpeed = 0.01;
+
+        // 버튼 활성화 함수
+        const activateButton = () => {
+            this.rotateButton.style.backgroundColor = '#ffffff';
+            this.rotateButton.style.border = '2px solid #cccccc';
+            this.rotateButton.style.cursor = 'pointer';
+        };
+
+        // 버튼 비활성화 함수
+        const deactivateButton = () => {
+            this.rotateButton.style.backgroundColor = '#cccccc';
+            this.rotateButton.style.border = '2px solid #999999';
+            this.rotateButton.style.cursor = 'not-allowed';
+        };
         
         this.rotateButton.addEventListener('mousedown', (event) => {
             if (this.selectedModel) {
@@ -152,7 +168,11 @@ class Scene {
         document.addEventListener('mouseup', () => {
             if (this.isRotating) {
                 this.isRotating = false;
-                this.rotateButton.style.backgroundColor = '#ffffff';
+                if (this.selectedModel) {
+                    activateButton();
+                } else {
+                    deactivateButton();
+                }
             }
         });
 
@@ -161,11 +181,9 @@ class Scene {
                 const deltaX = event.clientX - lastMouseX;
                 const deltaY = event.clientY - lastMouseY;
                 
-                // 마우스 이동에 따라 모델 회전
                 this.selectedModel.rotation.y += deltaX * rotationSpeed;
                 this.selectedModel.rotation.x += deltaY * rotationSpeed;
                 
-                // 회전 각도 제한 (선택사항)
                 this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
                 
                 lastMouseX = event.clientX;
@@ -174,6 +192,33 @@ class Scene {
         });
         
         this.container.appendChild(this.rotateButton);
+    }
+
+    createWireframeButton() {
+        const button = document.createElement('button');
+        button.textContent = 'Wireframe Toggle';
+        button.style.position = 'absolute';
+        button.style.bottom = '80px';
+        button.style.left = '20px';
+        button.style.padding = '10px 20px';
+        button.style.backgroundColor = '#ffffff';
+        button.style.border = '1px solid #cccccc';
+        button.style.borderRadius = '5px';
+        button.style.cursor = 'pointer';
+        button.style.zIndex = '1000';
+
+        button.addEventListener('click', () => {
+            this.isWireframe = !this.isWireframe;
+            this.models.forEach(model => {
+                model.traverse((child) => {
+                    if (child.isMesh) {
+                        child.material.wireframe = this.isWireframe;
+                    }
+                });
+            });
+        });
+
+        this.container.appendChild(button);
     }
 
     onMouseClick(event) {
@@ -243,8 +288,10 @@ class Scene {
         // 모델 선택 시 컨트롤 비활성화
         this.controls.enabled = false;
         
-        // Rotate Object 버튼 표시
-        this.rotateButton.style.display = 'block';
+        // Rotate 버튼 활성화
+        this.rotateButton.style.backgroundColor = '#ffffff';
+        this.rotateButton.style.border = '2px solid #cccccc';
+        this.rotateButton.style.cursor = 'pointer';
     }
 
     returnCameraToOriginalPosition() {
@@ -263,8 +310,10 @@ class Scene {
         // 컨트롤 다시 활성화
         this.controls.enabled = true;
         
-        // Rotate Object 버튼 숨기기
-        this.rotateButton.style.display = 'none';
+        // Rotate 버튼 비활성화
+        this.rotateButton.style.backgroundColor = '#cccccc';
+        this.rotateButton.style.border = '2px solid #999999';
+        this.rotateButton.style.cursor = 'not-allowed';
     }
 
     loadModels() {
