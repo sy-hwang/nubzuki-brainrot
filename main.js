@@ -12,8 +12,8 @@ class Scene {
         this.models = [];
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
-        this.originalCameraPosition = null;
-        this.originalControlsTarget = null;
+        this.originalCameraPosition = new THREE.Vector3(4.5, 1, 6);
+        this.originalControlsTarget = new THREE.Vector3(4.5, 0, 0);
         this.selectedModel = null;
         this.isCameraMoving = false;
         this.cameraStartPosition = new THREE.Vector3();
@@ -21,7 +21,7 @@ class Scene {
         this.controlsStartTarget = new THREE.Vector3();
         this.controlsEndTarget = new THREE.Vector3();
         this.cameraMoveStartTime = 0;
-        this.cameraMoveDuration = 600; // 0.6초로 단축
+        this.cameraMoveDuration = 600;
         
         this.init();
     }
@@ -66,8 +66,11 @@ class Scene {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
-        this.controls.target.set(4.5, 0, 0);
-        this.controls.maxDistance = 6; // 최대 줌 거리
+        this.controls.target.copy(this.originalControlsTarget);
+        this.controls.maxDistance = 6;
+
+        // Reset Camera 버튼 추가
+        this.createResetButton();
 
         // 윈도우 리사이즈 이벤트 처리
         window.addEventListener('resize', () => this.onWindowResize());
@@ -80,6 +83,26 @@ class Scene {
 
         // 애니메이션 시작
         this.animate();
+    }
+
+    createResetButton() {
+        const button = document.createElement('button');
+        button.textContent = 'Reset Camera';
+        button.style.position = 'absolute';
+        button.style.top = '20px';
+        button.style.right = '20px';
+        button.style.padding = '10px 20px';
+        button.style.backgroundColor = '#ffffff';
+        button.style.border = '1px solid #cccccc';
+        button.style.borderRadius = '5px';
+        button.style.cursor = 'pointer';
+        button.style.zIndex = '1000';
+        
+        button.addEventListener('click', () => {
+            this.returnCameraToOriginalPosition();
+        });
+        
+        this.container.appendChild(button);
     }
 
     onMouseClick(event) {
@@ -99,9 +122,6 @@ class Scene {
             if (clickedModel) {
                 this.moveCameraToModel(clickedModel);
             }
-        } else {
-            // 빈 공간이 클릭된 경우
-            this.returnCameraToOriginalPosition();
         }
     }
 
@@ -120,12 +140,6 @@ class Scene {
         // 이전에 선택된 모델이 있다면 카메라를 원위치로
         if (this.selectedModel) {
             this.returnCameraToOriginalPosition();
-        }
-
-        // 현재 카메라 위치와 타겟 저장
-        if (!this.originalCameraPosition) {
-            this.originalCameraPosition = this.camera.position.clone();
-            this.originalControlsTarget = this.controls.target.clone();
         }
 
         // 선택된 모델 저장
@@ -154,22 +168,26 @@ class Scene {
         // 카메라 이동 시작
         this.isCameraMoving = true;
         this.cameraMoveStartTime = Date.now();
+
+        // 모델 선택 시 컨트롤 비활성화
+        this.controls.enabled = false;
     }
 
     returnCameraToOriginalPosition() {
-        if (this.originalCameraPosition && this.originalControlsTarget) {
-            // 시작 위치와 목표 위치 설정
-            this.cameraStartPosition.copy(this.camera.position);
-            this.cameraEndPosition.copy(this.originalCameraPosition);
+        // 시작 위치와 목표 위치 설정
+        this.cameraStartPosition.copy(this.camera.position);
+        this.cameraEndPosition.copy(this.originalCameraPosition);
 
-            this.controlsStartTarget.copy(this.controls.target);
-            this.controlsEndTarget.copy(this.originalControlsTarget);
+        this.controlsStartTarget.copy(this.controls.target);
+        this.controlsEndTarget.copy(this.originalControlsTarget);
 
-            // 카메라 이동 시작
-            this.isCameraMoving = true;
-            this.cameraMoveStartTime = Date.now();
-            this.selectedModel = null;
-        }
+        // 카메라 이동 시작
+        this.isCameraMoving = true;
+        this.cameraMoveStartTime = Date.now();
+        this.selectedModel = null;
+
+        // 컨트롤 다시 활성화
+        this.controls.enabled = true;
     }
 
     loadModels() {
