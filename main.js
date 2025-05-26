@@ -213,6 +213,41 @@ class Scene {
                 model.traverse((child) => {
                     if (child.isMesh) {
                         child.material.wireframe = this.isWireframe;
+                        if (this.isWireframe) {
+                            // wireframe 모드일 때 정점 표시
+                            const geometry = child.geometry;
+                            const positions = geometry.attributes.position;
+                            
+                            // 기존 포인트 제거
+                            child.children.forEach(point => {
+                                if (point.isPoints) {
+                                    child.remove(point);
+                                }
+                            });
+
+                            // 새로운 포인트 생성
+                            const pointGeometry = new THREE.BufferGeometry();
+                            pointGeometry.setAttribute('position', positions);
+                            
+                            const pointMaterial = new THREE.PointsMaterial({
+                                color: 0x000000,
+                                size: 0.01,  // 크기를 0.15에서 0.05로 줄임
+                                sizeAttenuation: true
+                            });
+                            
+                            const points = new THREE.Points(pointGeometry, pointMaterial);
+                            child.add(points);
+
+                            // wireframe 선의 두께 조정
+                            child.material.wireframeLinewidth = 1;
+                        } else {
+                            // wireframe 모드가 아닐 때 포인트 제거
+                            child.children.forEach(point => {
+                                if (point.isPoints) {
+                                    child.remove(point);
+                                }
+                            });
+                        }
                     }
                 });
             });
