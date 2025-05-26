@@ -34,6 +34,8 @@ class Scene {
         this.fixedVertices = new Set();
         this.isDraggable = false;
         this.isDeforming = false;
+        this.currentMode = null;
+        this.modeBorderDiv = null;
         
         this.init();
     }
@@ -109,6 +111,9 @@ class Scene {
 
         // 버튼들 생성
         this.createActionButtons();
+
+        // 모드 테두리 div 생성
+        this.createModeBorderDiv();
 
         // 애니메이션 시작
         this.animate();
@@ -495,6 +500,9 @@ class Scene {
         this.rotateButton.style.backgroundColor = '#ffffff';
         this.rotateButton.style.border = '2px solid #cccccc';
         this.rotateButton.style.cursor = 'pointer';
+
+        // 액션 버튼들 활성화
+        this.updateActionButtonsState();
     }
 
     returnCameraToOriginalPosition() {
@@ -513,6 +521,9 @@ class Scene {
             this.rotateButton.style.border = '2px solid #999999';
             this.rotateButton.style.cursor = 'not-allowed';
         }
+
+        // 액션 버튼들 비활성화
+        this.updateActionButtonsState();
 
         // 선택된 정점들 해제
         this.selectedVertices.clear();
@@ -710,13 +721,13 @@ class Scene {
         buttonContainer.style.marginBottom = '140px';
 
         const buttons = [
-            { text: 'Fixed', color: '#4CAF50', action: () => this.fixSelectedVertices() },
-            { text: 'Draggable', color: '#f44336', action: () => this.toggleDraggable() },
-            { text: 'De-select', color: '#2196F3', action: () => this.deselectVertices() },
-            { text: 'Deform', color: '#ffffff', action: () => this.toggleDeform() }
+            { text: 'Fixed', color: '#4CAF50', mode: 'fixed', action: () => this.fixSelectedVertices() },
+            { text: 'Draggable', color: '#f44336', mode: 'draggable', action: () => this.toggleDraggable() },
+            { text: 'De-select', color: '#2196F3', mode: 'deselect', action: () => this.deselectVertices() },
+            { text: 'Deform', color: '#ffffff', mode: 'deform', action: () => this.toggleDeform() }
         ];
 
-        buttons.forEach(({ text, color, action }) => {
+        this.actionButtons = buttons.map(({ text, color, mode, action }) => {
             const button = document.createElement('button');
             button.textContent = text;
             button.style.padding = '10px 20px';
@@ -724,13 +735,17 @@ class Scene {
             button.style.color = color === '#ffffff' ? '#000000' : '#ffffff';
             button.style.border = 'none';
             button.style.borderRadius = '5px';
-            button.style.cursor = 'pointer';
+            button.style.cursor = 'not-allowed';
             button.style.fontWeight = 'bold';
             button.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
             button.style.transition = 'all 0.3s ease';
+            button.style.opacity = '0.5';
+            button.dataset.mode = mode;
 
             button.addEventListener('mouseover', () => {
-                button.style.transform = 'scale(1.05)';
+                if (button.style.cursor !== 'not-allowed') {
+                    button.style.transform = 'scale(1.05)';
+                }
             });
 
             button.addEventListener('mouseout', () => {
@@ -739,13 +754,94 @@ class Scene {
 
             button.addEventListener('click', (event) => {
                 event.stopPropagation();
-                action();
+                if (button.style.cursor !== 'not-allowed') {
+                    this.setMode(mode);
+                    action();
+                }
             });
 
             buttonContainer.appendChild(button);
+            return button;
         });
 
         this.container.appendChild(buttonContainer);
+    }
+
+    createModeBorderDiv() {
+        this.modeBorderDiv = document.createElement('div');
+        this.modeBorderDiv.style.position = 'fixed';
+        this.modeBorderDiv.style.top = '0';
+        this.modeBorderDiv.style.left = '0';
+        this.modeBorderDiv.style.right = '0';
+        this.modeBorderDiv.style.bottom = '0';
+        this.modeBorderDiv.style.pointerEvents = 'none';
+        this.modeBorderDiv.style.border = 'none';
+        this.modeBorderDiv.style.transition = 'border 0.3s ease';
+        this.modeBorderDiv.style.zIndex = '9999';
+        document.body.appendChild(this.modeBorderDiv);
+    }
+
+    setMode(mode) {
+        // 이전 모드 버튼의 테두리 제거
+        if (this.currentMode) {
+            const prevButton = this.actionButtons.find(btn => btn.dataset.mode === this.currentMode);
+            if (prevButton) {
+                prevButton.style.border = 'none';
+            }
+        }
+
+        // 같은 모드를 다시 클릭한 경우 모드 해제
+        if (this.currentMode === mode) {
+            this.currentMode = null;
+            this.isDraggable = false;
+            this.isDeforming = false;
+            this.modeBorderDiv.style.border = 'none';
+            return;
+        }
+
+        // 새로운 모드 설정
+        this.currentMode = mode;
+        const newButton = this.actionButtons.find(btn => btn.dataset.mode === mode);
+        if (newButton) {
+            this.modeBorderDiv.style.border = `5px solid ${newButton.style.backgroundColor}`;
+        }
+
+        // 모드별 상태 초기화
+        switch (mode) {
+            case 'draggable':
+                this.isDraggable = true;
+                this.isDeforming = false;
+                break;
+            case 'deform':
+                this.isDraggable = false;
+                this.isDeforming = true;
+                break;
+            case 'fixed':
+            case 'deselect':
+                this.isDraggable = false;
+                this.isDeforming = false;
+                break;
+        }
+    }
+
+    updateActionButtonsState() {
+        const isModelSelected = this.selectedModel !== null;
+        this.actionButtons.forEach(button => {
+            if (isModelSelected) {
+                button.style.cursor = 'pointer';
+                button.style.opacity = '1';
+            } else {
+                button.style.cursor = 'not-allowed';
+                button.style.opacity = '0.5';
+            }
+        });
+        // 모델이 선택되지 않았을 때는 모든 모드 해제
+        if (!isModelSelected) {
+            this.currentMode = null;
+            this.isDraggable = false;
+            this.isDeforming = false;
+            this.modeBorderDiv.style.border = 'none';
+        }
     }
 
     fixSelectedVertices() {
