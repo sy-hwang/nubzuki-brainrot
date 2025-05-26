@@ -30,6 +30,10 @@ class Scene {
         this.dragEnd2D = { x: 0, y: 0 };
         this.dragBoxDiv = null;
         this.selectedVertices = new Set();
+        this.vertexCountDisplay = null;
+        this.fixedVertices = new Set();
+        this.isDraggable = false;
+        this.isDeforming = false;
         
         this.init();
     }
@@ -97,8 +101,14 @@ class Scene {
         window.addEventListener('mousemove', (e) => this.handleDragMove(e));
         window.addEventListener('mouseup', (e) => this.handleDragEnd(e));
 
+        // 선택된 정점 개수 표시 요소 생성
+        this.createVertexCountDisplay();
+
         // GLB 파일 로드
         this.loadModels();
+
+        // 버튼들 생성
+        this.createActionButtons();
 
         // 애니메이션 시작
         this.animate();
@@ -118,7 +128,7 @@ class Scene {
         button.style.zIndex = '1000';
         
         button.addEventListener('click', (event) => {
-            event.stopPropagation(); // 버튼 클릭 시 씬 클릭 이벤트 방지
+            event.stopPropagation();
             this.returnCameraToOriginalPosition();
         });
         
@@ -129,7 +139,7 @@ class Scene {
         this.rotateButton = document.createElement('div');
         this.rotateButton.style.position = 'absolute';
         this.rotateButton.style.bottom = '20px';
-        this.rotateButton.style.left = '20px';
+        this.rotateButton.style.right = '20px';
         this.rotateButton.style.width = '50px';
         this.rotateButton.style.height = '50px';
         this.rotateButton.style.backgroundColor = '#cccccc';
@@ -212,7 +222,7 @@ class Scene {
         button.textContent = 'Wireframe Toggle';
         button.style.position = 'absolute';
         button.style.bottom = '80px';
-        button.style.left = '20px';
+        button.style.right = '20px';
         button.style.padding = '10px 20px';
         button.style.backgroundColor = '#ffffff';
         button.style.border = '1px solid #cccccc';
@@ -279,6 +289,27 @@ class Scene {
         this.dragBoxDiv.style.display = 'none';
         this.dragBoxDiv.style.zIndex = '2000';
         document.body.appendChild(this.dragBoxDiv);
+    }
+
+    createVertexCountDisplay() {
+        this.vertexCountDisplay = document.createElement('div');
+        this.vertexCountDisplay.style.position = 'absolute';
+        this.vertexCountDisplay.style.top = '20px';
+        this.vertexCountDisplay.style.right = '20px';
+        this.vertexCountDisplay.style.padding = '10px 20px';
+        this.vertexCountDisplay.style.backgroundColor = 'rgba(255, 255, 255, 0.8)';
+        this.vertexCountDisplay.style.border = '1px solid #cccccc';
+        this.vertexCountDisplay.style.borderRadius = '5px';
+        this.vertexCountDisplay.style.fontSize = '14px';
+        this.vertexCountDisplay.style.zIndex = '1000';
+        this.updateVertexCountDisplay();
+        this.container.appendChild(this.vertexCountDisplay);
+    }
+
+    updateVertexCountDisplay() {
+        if (this.vertexCountDisplay) {
+            this.vertexCountDisplay.textContent = `선택된 정점: ${this.selectedVertices.size}개`;
+        }
     }
 
     handleDragStart(event) {
@@ -370,6 +401,9 @@ class Scene {
                     selectedAttr.needsUpdate = true;
                 }
             });
+
+            // 선택된 정점 개수 표시 업데이트
+            this.updateVertexCountDisplay();
         }
     }
 
@@ -479,6 +513,33 @@ class Scene {
             this.rotateButton.style.border = '2px solid #999999';
             this.rotateButton.style.cursor = 'not-allowed';
         }
+
+        // 선택된 정점들 해제
+        this.selectedVertices.clear();
+        this.fixedVertices.clear();
+        this.models.forEach(model => {
+            model.traverse((child) => {
+                if (child.isMesh && child.material.isShaderMaterial) {
+                    const selectedAttr = child.geometry.attributes.selected;
+                    const fixedAttr = child.geometry.attributes.fixed;
+                    if (selectedAttr) {
+                        for (let i = 0; i < selectedAttr.count; i++) {
+                            selectedAttr.setX(i, 0);
+                        }
+                        selectedAttr.needsUpdate = true;
+                    }
+                    if (fixedAttr) {
+                        for (let i = 0; i < fixedAttr.count; i++) {
+                            fixedAttr.setX(i, 0);
+                        }
+                        fixedAttr.needsUpdate = true;
+                    }
+                }
+            });
+        });
+
+        // 선택된 정점 개수 표시 업데이트
+        this.updateVertexCountDisplay();
     }
 
     loadModels() {
@@ -635,6 +696,167 @@ class Scene {
 
         this.controls.update();
         this.renderer.render(this.scene, this.camera);
+    }
+
+    createActionButtons() {
+        const buttonContainer = document.createElement('div');
+        buttonContainer.style.position = 'absolute';
+        buttonContainer.style.bottom = '20px';
+        buttonContainer.style.left = '20px';
+        buttonContainer.style.display = 'flex';
+        buttonContainer.style.flexDirection = 'column';
+        buttonContainer.style.gap = '10px';
+        buttonContainer.style.zIndex = '1000';
+        buttonContainer.style.marginBottom = '140px';
+
+        const buttons = [
+            { text: 'Fixed', color: '#4CAF50', action: () => this.fixSelectedVertices() },
+            { text: 'Draggable', color: '#f44336', action: () => this.toggleDraggable() },
+            { text: 'De-select', color: '#2196F3', action: () => this.deselectVertices() },
+            { text: 'Deform', color: '#ffffff', action: () => this.toggleDeform() }
+        ];
+
+        buttons.forEach(({ text, color, action }) => {
+            const button = document.createElement('button');
+            button.textContent = text;
+            button.style.padding = '10px 20px';
+            button.style.backgroundColor = color;
+            button.style.color = color === '#ffffff' ? '#000000' : '#ffffff';
+            button.style.border = 'none';
+            button.style.borderRadius = '5px';
+            button.style.cursor = 'pointer';
+            button.style.fontWeight = 'bold';
+            button.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+            button.style.transition = 'all 0.3s ease';
+
+            button.addEventListener('mouseover', () => {
+                button.style.transform = 'scale(1.05)';
+            });
+
+            button.addEventListener('mouseout', () => {
+                button.style.transform = 'scale(1)';
+            });
+
+            button.addEventListener('click', (event) => {
+                event.stopPropagation();
+                action();
+            });
+
+            buttonContainer.appendChild(button);
+        });
+
+        this.container.appendChild(buttonContainer);
+    }
+
+    fixSelectedVertices() {
+        if (!this.selectedModel || this.selectedVertices.size === 0) return;
+
+        this.selectedVertices.forEach(vertex => {
+            this.fixedVertices.add(vertex);
+        });
+
+        // 고정된 정점을 시각적으로 표시 (예: 노란색으로 변경)
+        this.selectedModel.traverse((child) => {
+            if (child.isMesh && child.material.isShaderMaterial) {
+                const geometry = child.geometry;
+                const positions = geometry.attributes.position;
+                const fixedAttr = geometry.attributes.fixed || new THREE.BufferAttribute(
+                    new Float32Array(positions.count).fill(0),
+                    1
+                );
+                geometry.setAttribute('fixed', fixedAttr);
+
+                // 고정된 정점 표시
+                this.selectedVertices.forEach(vertex => {
+                    for (let i = 0; i < positions.count; i++) {
+                        const pos = new THREE.Vector3();
+                        pos.fromBufferAttribute(positions, i);
+                        if (pos.distanceTo(vertex) < 0.001) {
+                            fixedAttr.setX(i, 1);
+                        }
+                    }
+                });
+                fixedAttr.needsUpdate = true;
+            }
+        });
+    }
+
+    toggleDraggable() {
+        this.isDraggable = !this.isDraggable;
+        if (this.isDraggable) {
+            this.isDeforming = false;
+        }
+    }
+
+    deselectVertices() {
+        this.selectedVertices.clear();
+        this.selectedModel?.traverse((child) => {
+            if (child.isMesh && child.material.isShaderMaterial) {
+                const selectedAttr = child.geometry.attributes.selected;
+                for (let i = 0; i < selectedAttr.count; i++) {
+                    selectedAttr.setX(i, 0);
+                }
+                selectedAttr.needsUpdate = true;
+            }
+        });
+        this.updateVertexCountDisplay();
+    }
+
+    toggleDeform() {
+        this.isDeforming = !this.isDeforming;
+        if (this.isDeforming) {
+            this.isDraggable = false;
+        }
+    }
+
+    // 셰이더 머티리얼 업데이트
+    updateShaderMaterial(child) {
+        if (child.material.isShaderMaterial) {
+            const material = child.material;
+            material.uniforms.fixedColor = { value: new THREE.Color(0xffff00) };
+            material.uniforms.isFixed = { value: 1.0 };
+            
+            // 셰이더 코드 업데이트
+            material.vertexShader = `
+                attribute float selected;
+                attribute float fixed;
+                varying float vSelected;
+                varying float vFixed;
+                varying vec2 vUv;
+                void main() {
+                    vSelected = selected;
+                    vFixed = fixed;
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                }
+            `;
+            
+            material.fragmentShader = `
+                uniform vec3 color;
+                uniform vec3 selectedColor;
+                uniform vec3 fixedColor;
+                uniform sampler2D map;
+                varying float vSelected;
+                varying float vFixed;
+                varying vec2 vUv;
+
+                void main() {
+                    vec4 texColor = texture2D(map, vUv);
+                    vec3 finalColor = texColor.rgb * color;
+                    
+                    if (vFixed > 0.5) {
+                        finalColor = mix(finalColor, fixedColor, 0.5);
+                    }
+                    if (vSelected > 0.5) {
+                        finalColor = mix(finalColor, selectedColor, 0.5);
+                    }
+                    
+                    gl_FragColor = vec4(finalColor, texColor.a);
+                }
+            `;
+            
+            material.needsUpdate = true;
+        }
     }
 }
 
