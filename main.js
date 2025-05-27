@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
+import { PMREMGenerator } from 'three';
 
 class Scene {
     constructor() {
@@ -75,6 +77,23 @@ class Scene {
         this.controls.dampingFactor = 0.05;
         this.controls.target.copy(this.originalControlsTarget);
         this.controls.maxDistance = 6;
+        
+        // Environment Map
+        const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+        pmremGenerator.compileEquirectangularShader();
+
+        new EXRLoader()
+            .load('envs/minedump_flats_4k.exr', (texture) => {
+                texture.mapping = THREE.EquirectangularReflectionMapping;
+
+                const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+
+                this.scene.environment = envMap;
+                this.scene.background = envMap;
+
+                texture.dispose();
+                pmremGenerator.dispose();
+            });
 
         // Reset Camera 버튼 추가
         this.createResetButton();
