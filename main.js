@@ -38,6 +38,10 @@ class Scene {
         this.originalPositions = new Map(); // 모델의 초기 위치를 저장할 Map
         this.isPlaying = false; // 재생 상태를 추적하는 변수 추가
         this.playButton = null; // play 버튼 참조를 저장할 변수 추가
+        this.autoRotate = true; // 자동 회전 활성화 여부
+        this.rotationSpeed = 0.01; // 회전 속도 5배 증가
+        this.rotationTime = 0; // 회전 시간 추적
+        this.rotationRange = Math.PI / 4; // 45도 (라디안)
         
         this.init();
     }
@@ -90,6 +94,9 @@ class Scene {
 
         // Play 버튼 추가
         this.createPlayButton();
+
+        // Auto Rotate 버튼 추가
+        this.createAutoRotateButton();
 
         // 윈도우 리사이즈 이벤트 처리
         window.addEventListener('resize', () => this.onWindowResize());
@@ -193,6 +200,28 @@ class Scene {
         });
 
         this.container.appendChild(this.playButton);
+    }
+
+    createAutoRotateButton() {
+        const button = document.createElement('button');
+        button.textContent = 'Auto Rotate';
+        button.style.position = 'absolute';
+        button.style.bottom = '160px'; // Play 버튼 위에 배치
+        button.style.left = '20px';
+        button.style.padding = '10px 20px';
+        button.style.backgroundColor = '#ffffff';
+        button.style.border = '1px solid #cccccc';
+        button.style.borderRadius = '5px';
+        button.style.cursor = 'pointer';
+        button.style.zIndex = '1000';
+
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.autoRotate = !this.autoRotate;
+            button.textContent = this.autoRotate ? 'Auto Rotate' : 'Stop Rotate';
+        });
+
+        this.container.appendChild(button);
     }
 
     createDragBoxDiv() {
@@ -523,6 +552,16 @@ class Scene {
     animate() {
         requestAnimationFrame(() => this.animate());
 
+        // 자동 회전 로직 수정
+        if (this.autoRotate) {
+            this.rotationTime += this.rotationSpeed;
+            const rotation = Math.sin(this.rotationTime) * this.rotationRange;
+            
+            this.models.forEach(model => {
+                model.rotation.y = rotation;
+            });
+        }
+
         // 카메라 이동 애니메이션
         if (this.isCameraMoving) {
             const currentTime = Date.now();
@@ -577,7 +616,7 @@ class Scene {
         const startTime = Date.now();
         const rotationDuration = 1500; // 1.5초 회전
         const moveDuration = 500; // 0.5초 이동
-        const pauseDuration = 1500; // 1.5초 멈춤
+        const pauseDuration = 1250; // 1.25초 멈춤
         const zoomOutDuration = 500; // 0.5초 줌아웃
         const totalDuration = rotationDuration + (moveDuration + pauseDuration) * this.models.length + zoomOutDuration;
         const center = new THREE.Vector3(4.5, 0, 0);
@@ -589,6 +628,14 @@ class Scene {
         const dz = startPosition.z - center.z;
         const radius = Math.sqrt(dx * dx + dz * dz);
         const startAngle = Math.atan2(dz, dx);
+
+        // 각 모델별 카메라 위치 변화를 위한 배열
+        const cameraPositions = [
+            { x: 0.0, y: 0.1, z: 1.5 },  // 세 번째 모델: 아래에서 보기
+            { x: 0.3, y: 0.2, z: 1.0 },    // 네 번째 모델: 오른쪽 위에서 보기
+            { x: 0.0, y: 0.2, z: 1.5 },  // 첫 번째 모델: 왼쪽에서 보기
+            { x: -0.4, y: 0.3, z: 1.3 }  // 두 번째 모델: 왼쪽 위에서 보기
+        ];
 
         const animate = () => {
             if (!this.isPlaying) return;
@@ -630,7 +677,6 @@ class Scene {
                             const modelCenter = box.getCenter(new THREE.Vector3());
                             const size = box.getSize(new THREE.Vector3());
                             const maxDim = Math.max(size.x, size.y, size.z);
-                            const viewDistance = maxDim * 1.5;
 
                             // 이전 모델의 위치 계산
                             let prevPosition;
@@ -647,20 +693,20 @@ class Scene {
                                 const prevModel = this.models[currentModelIndex - 1];
                                 const prevBox = new THREE.Box3().setFromObject(prevModel);
                                 const prevCenter = prevBox.getCenter(new THREE.Vector3());
-                                const prevSize = prevBox.getSize(new THREE.Vector3());
-                                const prevMaxDim = Math.max(prevSize.x, prevSize.y, prevSize.z);
+                                const prevPos = cameraPositions[currentModelIndex - 1];
                                 prevPosition = new THREE.Vector3(
-                                    prevCenter.x,
-                                    prevCenter.y + this.jumpHeight,
-                                    prevCenter.z + prevMaxDim * 1.5
+                                    prevCenter.x + prevPos.x,
+                                    prevCenter.y + prevPos.y,
+                                    prevCenter.z + prevPos.z
                                 );
                             }
 
                             // 현재 모델의 목표 위치
+                            const targetPos = cameraPositions[currentModelIndex];
                             const targetPosition = new THREE.Vector3(
-                                modelCenter.x,
-                                modelCenter.y + this.jumpHeight,
-                                modelCenter.z + viewDistance
+                                modelCenter.x + targetPos.x,
+                                modelCenter.y + targetPos.y,
+                                modelCenter.z + targetPos.z
                             );
 
                             currentPosition = new THREE.Vector3().lerpVectors(
@@ -678,14 +724,12 @@ class Scene {
                             const model = this.models[currentModelIndex];
                             const box = new THREE.Box3().setFromObject(model);
                             const modelCenter = box.getCenter(new THREE.Vector3());
-                            const size = box.getSize(new THREE.Vector3());
-                            const maxDim = Math.max(size.x, size.y, size.z);
-                            const viewDistance = maxDim * 1.5;
+                            const targetPos = cameraPositions[currentModelIndex];
 
                             currentPosition = new THREE.Vector3(
-                                modelCenter.x,
-                                modelCenter.y + this.jumpHeight,
-                                modelCenter.z + viewDistance
+                                modelCenter.x + targetPos.x,
+                                modelCenter.y + targetPos.y,
+                                modelCenter.z + targetPos.z
                             );
                             currentTarget = modelCenter.clone();
                         }
@@ -699,14 +743,12 @@ class Scene {
                         const lastModel = this.models[this.models.length - 1];
                         const box = new THREE.Box3().setFromObject(lastModel);
                         const modelCenter = box.getCenter(new THREE.Vector3());
-                        const size = box.getSize(new THREE.Vector3());
-                        const maxDim = Math.max(size.x, size.y, size.z);
-                        const viewDistance = maxDim * 1.5;
+                        const lastPos = cameraPositions[this.models.length - 1];
 
                         const lastPosition = new THREE.Vector3(
-                            modelCenter.x,
-                            modelCenter.y + this.jumpHeight,
-                            modelCenter.z + viewDistance
+                            modelCenter.x + lastPos.x,
+                            modelCenter.y + lastPos.y,
+                            modelCenter.z + lastPos.z
                         );
 
                         currentPosition = new THREE.Vector3().lerpVectors(
