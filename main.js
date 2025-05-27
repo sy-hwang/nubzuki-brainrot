@@ -37,6 +37,10 @@ class Scene {
         this.isDeforming = false;
         this.currentMode = null;
         this.modeBorderDiv = null;
+        this.draggedVertex = null;
+        this.dragPlane = new THREE.Plane();
+        this.dragPoint = new THREE.Vector3();
+        this.dragOffset = new THREE.Vector3();
         
         this.init();
     }
@@ -96,13 +100,12 @@ class Scene {
 
         // 마우스 이벤트 리스너 추가
         this.container.addEventListener('click', (event) => this.onMouseClick(event));
-
-        // 드래그 박스용 div 생성
-        this.createDragBoxDiv();
-        // 마우스 드래그 이벤트 리스너 추가
         this.container.addEventListener('mousedown', (e) => this.handleDragStart(e));
         window.addEventListener('mousemove', (e) => this.handleDragMove(e));
         window.addEventListener('mouseup', (e) => this.handleDragEnd(e));
+
+        // 드래그 박스용 div 생성
+        this.createDragBoxDiv();
 
         // 선택된 정점 개수 표시 요소 생성
         this.createVertexCountDisplay();
@@ -344,80 +347,173 @@ class Scene {
             this.updateDragBoxDiv();
             this.dragBoxDiv.style.display = 'block';
         }
-    }
-
-    handleDragMove(event) {
-        if (!this.dragging) return;
-        this.dragEnd2D = { x: event.clientX, y: event.clientY };
-        this.updateDragBoxDiv();
-    }
-
-    handleDragEnd(event) {
-        if (!this.dragging) return;
-        this.dragging = false;
-        this.dragBoxDiv.style.display = 'none';
-
-        // 드래그 영역 안의 정점들을 선택
-        if (this.selectedModel && (this.currentMode === 'fixed' || this.currentMode === 'draggable')) {
-            const dragBox = {
-                minX: Math.min(this.dragStart2D.x, this.dragEnd2D.x),
-                maxX: Math.max(this.dragStart2D.x, this.dragEnd2D.x),
-                minY: Math.min(this.dragStart2D.y, this.dragEnd2D.y),
-                maxY: Math.max(this.dragStart2D.y, this.dragEnd2D.y)
-            };
-
-            // 이전 선택 초기화
-            if (this.currentMode === 'fixed') {
-                this.fixedVertices.clear();
-            } else if (this.currentMode === 'draggable') {
-                this.draggableVertices.clear();
-            }
-
-            this.selectedModel.traverse((child) => {
-                if (child.isMesh && child.material.isShaderMaterial) {
-                    const geometry = child.geometry;
+        // deform 모드에서 정점 드래그 시작
+        else if (this.currentMode === 'deform') {
+            this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            
+            // 모델과의 교차 확인
+            const intersects = this.raycaster.intersectObjects(this.selectedModel.children, true);
+            
+            if (intersects.length > 0) {
+                const mesh = intersects[0].object;
+                if (mesh.isMesh && mesh.material.isShaderMaterial) {
+                    const geometry = mesh.geometry;
                     const positions = geometry.attributes.position;
                     const selectedAttr = geometry.attributes.selected;
-
-                    // 월드 변환 행렬 계산
-                    const worldMatrix = child.matrixWorld;
-                    const viewMatrix = this.camera.matrixWorldInverse;
-                    const projectionMatrix = this.camera.projectionMatrix;
-                    const viewProjectionMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
-
-                    // 모든 정점을 2D로 투영
+                    
+                    // 가장 가까운 정점 찾기
+                    let closestVertex = null;
+                    let minDistance = Infinity;
+                    
                     for (let i = 0; i < positions.count; i++) {
                         const vertex = new THREE.Vector3();
                         vertex.fromBufferAttribute(positions, i);
+                        vertex.applyMatrix4(mesh.matrixWorld);
                         
-                        // 월드 좌표로 변환
-                        vertex.applyMatrix4(worldMatrix);
-                        
-                        // 뷰-투영 행렬 적용
-                        const projected = vertex.clone().applyMatrix4(viewProjectionMatrix);
-                        
-                        // 정규화된 좌표를 화면 좌표로 변환
-                        const x = (projected.x * 0.5 + 0.5) * window.innerWidth;
-                        const y = (-projected.y * 0.5 + 0.5) * window.innerHeight;
-
-                        // 드래그 영역 안에 있는 정점 선택
-                        if (x >= dragBox.minX && x <= dragBox.maxX &&
-                            y >= dragBox.minY && y <= dragBox.maxY) {
-                            if (this.currentMode === 'fixed') {
-                                this.fixedVertices.add(vertex);
-                                selectedAttr.setX(i, 1);
-                            } else if (this.currentMode === 'draggable') {
-                                this.draggableVertices.add(vertex);
-                                selectedAttr.setX(i, 2);
-                            }
+                        const distance = vertex.distanceTo(intersects[0].point);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            closestVertex = { index: i, position: vertex.clone() };
                         }
                     }
-                    selectedAttr.needsUpdate = true;
+                    
+                    if (closestVertex && minDistance < 0.1) {
+                        // draggable로 지정된 정점인지 확인
+                        const isDraggable = selectedAttr.getX(closestVertex.index) === 2;
+                        
+                        if (isDraggable) {
+                            this.draggedVertex = {
+                                mesh: mesh,
+                                index: closestVertex.index,
+                                originalPosition: closestVertex.position.clone()
+                            };
+                            
+                            // 드래그 평면 설정
+                            this.dragPlane.setFromNormalAndCoplanarPoint(
+                                this.camera.getWorldDirection(this.dragPlane.normal),
+                                this.draggedVertex.originalPosition
+                            );
+                            
+                            // 드래그 오프셋 계산
+                            this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint);
+                            this.dragOffset.copy(this.draggedVertex.originalPosition).sub(this.dragPoint);
+                        }
+                    }
                 }
-            });
+            }
+        }
+    }
 
-            // 선택된 정점 개수 표시 업데이트
-            this.updateVertexCountDisplay();
+    handleDragMove(event) {
+        if (this.dragging) {
+            this.dragEnd2D = { x: event.clientX, y: event.clientY };
+            this.updateDragBoxDiv();
+        }
+        
+        if (this.draggedVertex && this.currentMode === 'deform') {
+            this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            
+            if (this.raycaster.ray.intersectPlane(this.dragPlane, this.dragPoint)) {
+                const newPosition = this.dragPoint.clone().add(this.dragOffset);
+                
+                // 정점 위치 업데이트
+                const positions = this.draggedVertex.mesh.geometry.attributes.position;
+                const worldToLocal = new THREE.Matrix4().copy(this.draggedVertex.mesh.matrixWorld).invert();
+                const localPosition = newPosition.clone().applyMatrix4(worldToLocal);
+                
+                positions.setXYZ(
+                    this.draggedVertex.index,
+                    localPosition.x,
+                    localPosition.y,
+                    localPosition.z
+                );
+                positions.needsUpdate = true;
+                
+                // 정점 색상 업데이트
+                const selectedAttr = this.draggedVertex.mesh.geometry.attributes.selected;
+                selectedAttr.setX(this.draggedVertex.index, 2);
+                selectedAttr.needsUpdate = true;
+            }
+        }
+    }
+
+    handleDragEnd(event) {
+        if (this.dragging) {
+            this.dragging = false;
+            this.dragBoxDiv.style.display = 'none';
+
+            // 드래그 영역 안의 정점들을 선택
+            if (this.selectedModel && (this.currentMode === 'fixed' || this.currentMode === 'draggable')) {
+                const dragBox = {
+                    minX: Math.min(this.dragStart2D.x, this.dragEnd2D.x),
+                    maxX: Math.max(this.dragStart2D.x, this.dragEnd2D.x),
+                    minY: Math.min(this.dragStart2D.y, this.dragEnd2D.y),
+                    maxY: Math.max(this.dragStart2D.y, this.dragEnd2D.y)
+                };
+
+                // 이전 선택 초기화
+                if (this.currentMode === 'fixed') {
+                    this.fixedVertices.clear();
+                } else if (this.currentMode === 'draggable') {
+                    this.draggableVertices.clear();
+                }
+
+                this.selectedModel.traverse((child) => {
+                    if (child.isMesh && child.material.isShaderMaterial) {
+                        const geometry = child.geometry;
+                        const positions = geometry.attributes.position;
+                        const selectedAttr = geometry.attributes.selected;
+
+                        // 월드 변환 행렬 계산
+                        const worldMatrix = child.matrixWorld;
+                        const viewMatrix = this.camera.matrixWorldInverse;
+                        const projectionMatrix = this.camera.projectionMatrix;
+                        const viewProjectionMatrix = new THREE.Matrix4().multiplyMatrices(projectionMatrix, viewMatrix);
+
+                        // 모든 정점을 2D로 투영
+                        for (let i = 0; i < positions.count; i++) {
+                            const vertex = new THREE.Vector3();
+                            vertex.fromBufferAttribute(positions, i);
+                            
+                            // 월드 좌표로 변환
+                            vertex.applyMatrix4(worldMatrix);
+                            
+                            // 뷰-투영 행렬 적용
+                            const projected = vertex.clone().applyMatrix4(viewProjectionMatrix);
+                            
+                            // 정규화된 좌표를 화면 좌표로 변환
+                            const x = (projected.x * 0.5 + 0.5) * window.innerWidth;
+                            const y = (-projected.y * 0.5 + 0.5) * window.innerHeight;
+
+                            // 드래그 영역 안에 있는 정점 선택
+                            if (x >= dragBox.minX && x <= dragBox.maxX &&
+                                y >= dragBox.minY && y <= dragBox.maxY) {
+                                if (this.currentMode === 'fixed') {
+                                    this.fixedVertices.add(vertex);
+                                    selectedAttr.setX(i, 1);
+                                } else if (this.currentMode === 'draggable') {
+                                    this.draggableVertices.add(vertex);
+                                    selectedAttr.setX(i, 2);
+                                }
+                            }
+                        }
+                        selectedAttr.needsUpdate = true;
+                    }
+                });
+
+                // 선택된 정점 개수 표시 업데이트
+                this.updateVertexCountDisplay();
+            }
+        }
+        
+        if (this.draggedVertex) {
+            this.draggedVertex = null;
         }
     }
 
