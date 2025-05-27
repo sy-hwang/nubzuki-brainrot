@@ -12,6 +12,7 @@ class Scene {
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.controls = null;
         this.models = [];
+        this.modelInitialRotations = new Map(); // 모델의 초기 회전값을 저장할 Map
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
         this.originalCameraPosition = new THREE.Vector3(4.5, 1, 6);
@@ -24,13 +25,25 @@ class Scene {
         this.controlsEndTarget = new THREE.Vector3();
         this.cameraMoveStartTime = 0;
         this.cameraMoveDuration = 600;
-        this.isRotating = false;
-        this.rotateButton = null;
         this.isWireframe = false;
         this.dragging = false;
         this.dragStart2D = { x: 0, y: 0 };
         this.dragEnd2D = { x: 0, y: 0 };
         this.dragBoxDiv = null;
+        this.showDragBox = false;
+        this.lastMouseX = 0;
+        this.lastMouseY = 0;
+        this.isJumping = false;
+        this.jumpStartTime = 0;
+        this.jumpDuration = 1000; // 점프 애니메이션 지속 시간 (ms)
+        this.jumpHeight = 0.2; // 점프 높이를 0.5에서 0.2로 낮춤
+        this.originalPositions = new Map(); // 모델의 초기 위치를 저장할 Map
+        this.isPlaying = false; // 재생 상태를 추적하는 변수 추가
+        this.playButton = null; // play 버튼 참조를 저장할 변수 추가
+        this.autoRotate = true; // 자동 회전 활성화 여부
+        this.rotationSpeed = 0.01; // 회전 속도 5배 증가
+        this.rotationTime = 0; // 회전 시간 추적
+        this.rotationRange = Math.PI / 4; // 45도 (라디안)
         
         this.init();
     }
@@ -95,12 +108,14 @@ class Scene {
                 pmremGenerator.dispose();
             });
 
-        // Reset Camera 버튼 추가
-        this.createResetButton();
-        // Rotate Object 버튼 추가
-        this.createRotateButton();
         // Wireframe Toggle 버튼 추가
         this.createWireframeButton();
+
+        // Play 버튼 추가
+        this.createPlayButton();
+
+        // Auto Rotate 버튼 추가
+        this.createAutoRotateButton();
 
         // 윈도우 리사이즈 이벤트 처리
         window.addEventListener('resize', () => this.onWindowResize());
@@ -120,109 +135,6 @@ class Scene {
 
         // 애니메이션 시작
         this.animate();
-    }
-
-    createResetButton() {
-        const button = document.createElement('button');
-        button.textContent = 'Reset Camera';
-        button.style.position = 'absolute';
-        button.style.top = '20px';
-        button.style.left = '20px';
-        button.style.padding = '10px 20px';
-        button.style.backgroundColor = '#ffffff';
-        button.style.border = '1px solid #cccccc';
-        button.style.borderRadius = '5px';
-        button.style.cursor = 'pointer';
-        button.style.zIndex = '1000';
-        
-        button.addEventListener('click', (event) => {
-            event.stopPropagation(); // 버튼 클릭 시 씬 클릭 이벤트 방지
-            this.returnCameraToOriginalPosition();
-        });
-        
-        this.container.appendChild(button);
-    }
-
-    createRotateButton() {
-        this.rotateButton = document.createElement('div');
-        this.rotateButton.style.position = 'absolute';
-        this.rotateButton.style.bottom = '20px';
-        this.rotateButton.style.left = '20px';
-        this.rotateButton.style.width = '50px';
-        this.rotateButton.style.height = '50px';
-        this.rotateButton.style.backgroundColor = '#cccccc';
-        this.rotateButton.style.border = '2px solid #999999';
-        this.rotateButton.style.borderRadius = '50%';
-        this.rotateButton.style.cursor = 'not-allowed';
-        this.rotateButton.style.zIndex = '1000';
-        this.rotateButton.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
-        
-        // rotate 텍스트 추가
-        const text = document.createElement('div');
-        text.textContent = 'rotate';
-        text.style.position = 'absolute';
-        text.style.top = '50%';
-        text.style.left = '50%';
-        text.style.transform = 'translate(-50%, -50%)';
-        text.style.fontSize = '12px';
-        text.style.color = '#666';
-        text.style.fontWeight = 'bold';
-        this.rotateButton.appendChild(text);
-        
-        let lastMouseX = 0;
-        let lastMouseY = 0;
-        let rotationSpeed = 0.01;
-
-        // 버튼 활성화 함수
-        const activateButton = () => {
-            this.rotateButton.style.backgroundColor = '#ffffff';
-            this.rotateButton.style.border = '2px solid #cccccc';
-            this.rotateButton.style.cursor = 'pointer';
-        };
-
-        // 버튼 비활성화 함수
-        const deactivateButton = () => {
-            this.rotateButton.style.backgroundColor = '#cccccc';
-            this.rotateButton.style.border = '2px solid #999999';
-            this.rotateButton.style.cursor = 'not-allowed';
-        };
-        
-        this.rotateButton.addEventListener('mousedown', (event) => {
-            if (this.selectedModel) {
-                this.isRotating = true;
-                this.rotateButton.style.backgroundColor = '#e0e0e0';
-                lastMouseX = event.clientX;
-                lastMouseY = event.clientY;
-            }
-        });
-
-        document.addEventListener('mouseup', () => {
-            if (this.isRotating) {
-                this.isRotating = false;
-                if (this.selectedModel) {
-                    activateButton();
-                } else {
-                    deactivateButton();
-                }
-            }
-        });
-
-        document.addEventListener('mousemove', (event) => {
-            if (this.isRotating && this.selectedModel) {
-                const deltaX = event.clientX - lastMouseX;
-                const deltaY = event.clientY - lastMouseY;
-                
-                this.selectedModel.rotation.y += deltaX * rotationSpeed;
-                this.selectedModel.rotation.x += deltaY * rotationSpeed;
-                
-                this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
-                
-                lastMouseX = event.clientX;
-                lastMouseY = event.clientY;
-            }
-        });
-        
-        this.container.appendChild(this.rotateButton);
     }
 
     createWireframeButton() {
@@ -288,6 +200,49 @@ class Scene {
         this.container.appendChild(button);
     }
 
+    createPlayButton() {
+        this.playButton = document.createElement('button');
+        this.playButton.textContent = 'Play';
+        this.playButton.style.position = 'absolute';
+        this.playButton.style.bottom = '120px'; // Wireframe 버튼 위에 배치
+        this.playButton.style.left = '20px';
+        this.playButton.style.padding = '10px 20px';
+        this.playButton.style.backgroundColor = '#ffffff';
+        this.playButton.style.border = '1px solid #cccccc';
+        this.playButton.style.borderRadius = '5px';
+        this.playButton.style.cursor = 'pointer';
+        this.playButton.style.zIndex = '1000';
+
+        this.playButton.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.togglePlay();
+        });
+
+        this.container.appendChild(this.playButton);
+    }
+
+    createAutoRotateButton() {
+        const button = document.createElement('button');
+        button.textContent = 'Auto Rotate';
+        button.style.position = 'absolute';
+        button.style.bottom = '160px'; // Play 버튼 위에 배치
+        button.style.left = '20px';
+        button.style.padding = '10px 20px';
+        button.style.backgroundColor = '#ffffff';
+        button.style.border = '1px solid #cccccc';
+        button.style.borderRadius = '5px';
+        button.style.cursor = 'pointer';
+        button.style.zIndex = '1000';
+
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.autoRotate = !this.autoRotate;
+            button.textContent = this.autoRotate ? 'Auto Rotate' : 'Stop Rotate';
+        });
+
+        this.container.appendChild(button);
+    }
+
     createDragBoxDiv() {
         this.dragBoxDiv = document.createElement('div');
         this.dragBoxDiv.style.position = 'fixed';
@@ -315,20 +270,53 @@ class Scene {
         this.dragging = true;
         this.dragStart2D = { x: event.clientX, y: event.clientY };
         this.dragEnd2D = { x: event.clientX, y: event.clientY };
-        this.updateDragBoxDiv();
-        this.dragBoxDiv.style.display = 'block';
+        
+        // 드래그 시작 시 현재 마우스 위치 저장
+        this.lastMouseX = event.clientX;
+        this.lastMouseY = event.clientY;
+        
+        if (this.showDragBox) {
+            this.updateDragBoxDiv();
+            this.dragBoxDiv.style.display = 'block';
+        }
     }
 
     handleDragMove(event) {
-        if (!this.dragging) return;
-        this.dragEnd2D = { x: event.clientX, y: event.clientY };
-        this.updateDragBoxDiv();
+        if (!this.dragging || !this.selectedModel) return;
+        
+        // 현재 마우스 위치
+        const currentX = event.clientX;
+        const currentY = event.clientY;
+        
+        // 마우스 이동량 계산
+        const deltaX = currentX - this.lastMouseX;
+        const deltaY = currentY - this.lastMouseY;
+        
+        // 회전 속도 조절 (값이 클수록 더 빠르게 회전)
+        const rotationSpeed = 0.005;
+        
+        // Y축 회전 (좌우)
+        this.selectedModel.rotation.y += deltaX * rotationSpeed;
+        
+        // X축 회전 (상하) - 제한된 범위 내에서만 회전
+        this.selectedModel.rotation.x += deltaY * rotationSpeed;
+        this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
+        
+        // 다음 프레임을 위한 마우스 위치 업데이트
+        this.lastMouseX = currentX;
+        this.lastMouseY = currentY;
+        
+        if (this.showDragBox) {
+            this.updateDragBoxDiv();
+        }
     }
 
     handleDragEnd(event) {
         if (!this.dragging) return;
         this.dragging = false;
-        this.dragBoxDiv.style.display = 'none';
+        if (this.showDragBox) {
+            this.dragBoxDiv.style.display = 'none';
+        }
     }
 
     updateDragBoxDiv() {
@@ -364,8 +352,12 @@ class Scene {
                 if (this.selectedModel === clickedModel) return;
                 this.moveCameraToModel(clickedModel);
             }
+        } else {
+            // 모델이 아닌 부분을 클릭했을 때
+            if (this.selectedModel) {
+                this.returnCameraToOriginalPosition();
+            }
         }
-        // else: 아무 동작도 하지 않음
     }
 
     findParentModel(object) {
@@ -401,7 +393,7 @@ class Scene {
         this.cameraStartPosition.copy(this.camera.position);
         this.cameraEndPosition.set(
             center.x,
-            center.y,
+            center.y + this.jumpHeight, // 점프 높이만큼 카메라 위치를 위로 조정
             center.z + distance
         );
 
@@ -414,29 +406,108 @@ class Scene {
 
         // 모델 선택 시 컨트롤 비활성화
         this.controls.enabled = false;
-        
-        // Rotate 버튼 활성화
-        this.rotateButton.style.backgroundColor = '#ffffff';
-        this.rotateButton.style.border = '2px solid #cccccc';
-        this.rotateButton.style.cursor = 'pointer';
+
+        // 모델의 초기 위치 저장
+        if (!this.originalPositions.has(model)) {
+            this.originalPositions.set(model, {
+                x: model.position.x,
+                y: model.position.y,
+                z: model.position.z
+            });
+        }
+
+        // 점프 애니메이션 시작
+        this.startJumpAnimation(model);
+    }
+
+    startJumpAnimation(model) {
+        this.isJumping = true;
+        this.jumpStartTime = Date.now();
+
+        const animateJump = () => {
+            if (!this.isJumping) return;
+
+            const currentTime = Date.now();
+            const elapsedTime = currentTime - this.jumpStartTime;
+            const progress = (elapsedTime % this.jumpDuration) / this.jumpDuration;
+
+            // 사인 함수를 사용하여 부드러운 점프 애니메이션 구현
+            const jumpProgress = Math.sin(progress * Math.PI);
+            const originalY = this.originalPositions.get(model).y;
+            model.position.y = originalY + (this.jumpHeight * jumpProgress);
+
+            requestAnimationFrame(animateJump);
+        };
+
+        animateJump();
     }
 
     returnCameraToOriginalPosition() {
         // 시작 위치와 목표 위치 설정
-        this.camera.position.copy(this.originalCameraPosition);
-        this.controls.target.copy(this.originalControlsTarget);
-        this.controls.update();
+        this.cameraStartPosition.copy(this.camera.position);
+        this.cameraEndPosition.copy(this.originalCameraPosition);
+
+        this.controlsStartTarget.copy(this.controls.target);
+        this.controlsEndTarget.copy(this.originalControlsTarget);
+
+        // 카메라 이동 시작
+        this.isCameraMoving = true;
+        this.cameraMoveStartTime = Date.now();
+
+        // 점프 애니메이션 중지
+        this.isJumping = false;
+
+        // 모든 모델을 초기 위치로 복원
+        this.models.forEach(model => {
+            const originalPosition = this.originalPositions.get(model);
+            if (originalPosition) {
+                model.position.y = originalPosition.y;
+            }
+        });
+
+        // 모든 모델을 초기 회전값으로 복원
+        this.models.forEach(model => {
+            const initialRotation = this.modelInitialRotations.get(model);
+            if (initialRotation) {
+                // 회전 애니메이션을 위한 시작값 저장
+                const startRotation = {
+                    x: model.rotation.x,
+                    y: model.rotation.y,
+                    z: model.rotation.z
+                };
+
+                // 애니메이션 시작 시간 저장
+                const rotationStartTime = Date.now();
+
+                const animateRotation = () => {
+                    const currentTime = Date.now();
+                    const elapsedTime = currentTime - rotationStartTime;
+                    const progress = Math.min(elapsedTime / this.cameraMoveDuration, 1);
+
+                    // 부드러운 이징 함수 적용
+                    const easedProgress = progress < 0.5
+                        ? 4 * progress * progress * progress
+                        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+                    // 회전값 보간
+                    model.rotation.x = startRotation.x + (initialRotation.x - startRotation.x) * easedProgress;
+                    model.rotation.y = startRotation.y + (initialRotation.y - startRotation.y) * easedProgress;
+                    model.rotation.z = startRotation.z + (initialRotation.z - startRotation.z) * easedProgress;
+
+                    if (progress < 1) {
+                        requestAnimationFrame(animateRotation);
+                    }
+                };
+
+                animateRotation();
+            }
+        });
+
+        // 모델 선택 해제
         this.selectedModel = null;
 
         // 컨트롤 다시 활성화
         this.controls.enabled = true;
-        
-        // Rotate 버튼 비활성화
-        if (this.rotateButton) {
-            this.rotateButton.style.backgroundColor = '#cccccc';
-            this.rotateButton.style.border = '2px solid #999999';
-            this.rotateButton.style.cursor = 'not-allowed';
-        }
     }
 
     loadModels() {
@@ -456,6 +527,13 @@ class Scene {
                     const model = gltf.scene;
                     // 모델 위치 조정 (간격을 3으로 조정)
                     model.position.set(index * 3, 0, 0);
+                    
+                    // 모델의 초기 회전값 저장
+                    this.modelInitialRotations.set(model, {
+                        x: model.rotation.x,
+                        y: model.rotation.y,
+                        z: model.rotation.z
+                    });
                     
                     // 모델의 모든 메시에 대해 재질 설정
                     model.traverse((child) => {
@@ -493,6 +571,16 @@ class Scene {
     animate() {
         requestAnimationFrame(() => this.animate());
 
+        // 자동 회전 로직 수정
+        if (this.autoRotate) {
+            this.rotationTime += this.rotationSpeed;
+            const rotation = Math.sin(this.rotationTime) * this.rotationRange;
+            
+            this.models.forEach(model => {
+                model.rotation.y = rotation;
+            });
+        }
+
         // 카메라 이동 애니메이션
         if (this.isCameraMoving) {
             const currentTime = Date.now();
@@ -528,6 +616,188 @@ class Scene {
 
         this.controls.update();
         this.renderer.render(this.scene, this.camera);
+    }
+
+    togglePlay() {
+        this.isPlaying = !this.isPlaying;
+        this.playButton.textContent = this.isPlaying ? 'Stop' : 'Play';
+        
+        if (this.isPlaying) {
+            // 재생 시작 시 카메라 트라젝토리 시작
+            this.startCameraTrajectory();
+        } else {
+            // 재생 중지 시 카메라를 원위치로
+            this.returnCameraToOriginalPosition();
+        }
+    }
+
+    startCameraTrajectory() {
+        const startTime = Date.now();
+        const rotationDuration = 1500; // 1.5초 회전
+        const moveDuration = 500; // 0.5초 이동
+        const pauseDuration = 1250; // 1.25초 멈춤
+        const zoomOutDuration = 500; // 0.5초 줌아웃
+        const totalDuration = rotationDuration + (moveDuration + pauseDuration) * this.models.length + zoomOutDuration;
+        const center = new THREE.Vector3(4.5, 0, 0);
+        const startPosition = this.camera.position.clone();
+        const startTarget = this.controls.target.clone();
+
+        // 현재 카메라 위치에서의 반지름과 각도 계산
+        const dx = startPosition.x - center.x;
+        const dz = startPosition.z - center.z;
+        const radius = Math.sqrt(dx * dx + dz * dz);
+        const startAngle = Math.atan2(dz, dx);
+
+        // 각 모델별 카메라 위치 변화를 위한 배열
+        const cameraPositions = [
+            { x: 0.0, y: 0.1, z: 1.5 },  // 세 번째 모델: 아래에서 보기
+            { x: 0.3, y: 0.2, z: 1.0 },    // 네 번째 모델: 오른쪽 위에서 보기
+            { x: 0.0, y: 0.2, z: 1.5 },  // 첫 번째 모델: 왼쪽에서 보기
+            { x: -0.4, y: 0.3, z: 1.3 }  // 두 번째 모델: 왼쪽 위에서 보기
+        ];
+
+        const animate = () => {
+            if (!this.isPlaying) return;
+
+            const currentTime = Date.now();
+            const elapsedTime = currentTime - startTime;
+            const progress = Math.min(elapsedTime / totalDuration, 1);
+
+            if (progress < 1) {
+                let currentPosition;
+                let currentTarget;
+
+                if (elapsedTime < rotationDuration) {
+                    // 초기 회전 단계
+                    const rotationProgress = elapsedTime / rotationDuration;
+                    const angle = startAngle + rotationProgress * Math.PI * 2;
+                    currentPosition = new THREE.Vector3(
+                        center.x + Math.cos(angle) * radius,
+                        startPosition.y,
+                        center.z + Math.sin(angle) * radius
+                    );
+                    currentTarget = center.clone();
+                } else {
+                    const remainingTime = elapsedTime - rotationDuration;
+                    const modelDuration = moveDuration + pauseDuration;
+                    const currentModelIndex = Math.floor(remainingTime / modelDuration);
+                    
+                    if (currentModelIndex < this.models.length) {
+                        const modelProgress = (remainingTime % modelDuration) / moveDuration;
+                        
+                        if (modelProgress < 1) {
+                            // 모델로 이동 단계
+                            const easedProgress = modelProgress < 0.5
+                                ? 4 * modelProgress * modelProgress * modelProgress
+                                : 1 - Math.pow(-2 * modelProgress + 2, 3) / 2;
+
+                            const model = this.models[currentModelIndex];
+                            const box = new THREE.Box3().setFromObject(model);
+                            const modelCenter = box.getCenter(new THREE.Vector3());
+                            const size = box.getSize(new THREE.Vector3());
+                            const maxDim = Math.max(size.x, size.y, size.z);
+
+                            // 이전 모델의 위치 계산
+                            let prevPosition;
+                            if (currentModelIndex === 0) {
+                                // 첫 번째 모델로 이동할 때는 회전이 끝난 위치에서 시작
+                                const rotationEndAngle = startAngle + Math.PI * 2;
+                                prevPosition = new THREE.Vector3(
+                                    center.x + Math.cos(rotationEndAngle) * radius,
+                                    startPosition.y,
+                                    center.z + Math.sin(rotationEndAngle) * radius
+                                );
+                            } else {
+                                // 이전 모델의 위치
+                                const prevModel = this.models[currentModelIndex - 1];
+                                const prevBox = new THREE.Box3().setFromObject(prevModel);
+                                const prevCenter = prevBox.getCenter(new THREE.Vector3());
+                                const prevPos = cameraPositions[currentModelIndex - 1];
+                                prevPosition = new THREE.Vector3(
+                                    prevCenter.x + prevPos.x,
+                                    prevCenter.y + prevPos.y,
+                                    prevCenter.z + prevPos.z
+                                );
+                            }
+
+                            // 현재 모델의 목표 위치
+                            const targetPos = cameraPositions[currentModelIndex];
+                            const targetPosition = new THREE.Vector3(
+                                modelCenter.x + targetPos.x,
+                                modelCenter.y + targetPos.y,
+                                modelCenter.z + targetPos.z
+                            );
+
+                            currentPosition = new THREE.Vector3().lerpVectors(
+                                prevPosition,
+                                targetPosition,
+                                easedProgress
+                            );
+                            currentTarget = new THREE.Vector3().lerpVectors(
+                                currentModelIndex === 0 ? center : this.models[currentModelIndex - 1].position,
+                                modelCenter,
+                                easedProgress
+                            );
+                        } else {
+                            // 멈춤 단계
+                            const model = this.models[currentModelIndex];
+                            const box = new THREE.Box3().setFromObject(model);
+                            const modelCenter = box.getCenter(new THREE.Vector3());
+                            const targetPos = cameraPositions[currentModelIndex];
+
+                            currentPosition = new THREE.Vector3(
+                                modelCenter.x + targetPos.x,
+                                modelCenter.y + targetPos.y,
+                                modelCenter.z + targetPos.z
+                            );
+                            currentTarget = modelCenter.clone();
+                        }
+                    } else {
+                        // 마지막 줌아웃 단계
+                        const zoomOutProgress = (elapsedTime - (rotationDuration + modelDuration * this.models.length)) / zoomOutDuration;
+                        const easedProgress = zoomOutProgress < 0.5
+                            ? 4 * zoomOutProgress * zoomOutProgress * zoomOutProgress
+                            : 1 - Math.pow(-2 * zoomOutProgress + 2, 3) / 2;
+
+                        const lastModel = this.models[this.models.length - 1];
+                        const box = new THREE.Box3().setFromObject(lastModel);
+                        const modelCenter = box.getCenter(new THREE.Vector3());
+                        const lastPos = cameraPositions[this.models.length - 1];
+
+                        const lastPosition = new THREE.Vector3(
+                            modelCenter.x + lastPos.x,
+                            modelCenter.y + lastPos.y,
+                            modelCenter.z + lastPos.z
+                        );
+
+                        currentPosition = new THREE.Vector3().lerpVectors(
+                            lastPosition,
+                            startPosition,
+                            easedProgress
+                        );
+                        currentTarget = new THREE.Vector3().lerpVectors(
+                            modelCenter,
+                            startTarget,
+                            easedProgress
+                        );
+                    }
+                }
+
+                this.camera.position.copy(currentPosition);
+                this.controls.target.copy(currentTarget);
+                this.controls.update();
+                requestAnimationFrame(animate);
+            } else {
+                // 애니메이션 완료 후 원래 위치로 복귀
+                this.camera.position.copy(startPosition);
+                this.controls.target.copy(startTarget);
+                this.controls.update();
+                this.isPlaying = false;
+                this.playButton.textContent = 'Play';
+            }
+        };
+
+        animate();
     }
 }
 
