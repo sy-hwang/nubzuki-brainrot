@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import { TextureLoader, RepeatWrapping } from 'three';
 
 class Scene {
     constructor() {
@@ -83,6 +84,7 @@ class Scene {
         pointLight3.position.set(5, 5, -5);
         this.scene.add(pointLight3);
 
+
         // 컨트롤 설정
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
@@ -127,6 +129,9 @@ class Scene {
         this.container.addEventListener('mousedown', (e) => this.handleDragStart(e));
         window.addEventListener('mousemove', (e) => this.handleDragMove(e));
         window.addEventListener('mouseup', (e) => this.handleDragEnd(e));
+        
+        // 아레나 생성
+        this.createArena();
 
         // GLB 파일 로드
         this.loadModels();
@@ -134,6 +139,97 @@ class Scene {
         // 애니메이션 시작
         this.animate();
     }
+
+    createArena() {
+        // 1) 텍스처 로더 준비
+        const texLoader = new TextureLoader();
+
+        // 플랫폼용 텍스처
+        const platformTex = texLoader.load('textures/platform.jpg');
+        platformTex.wrapS = platformTex.wrapT = RepeatWrapping;
+        platformTex.repeat.set(4, 4);     // 텍스처 반복 횟수
+
+        // 벽(케이지)용 텍스처
+        const wallTex = texLoader.load('textures/wall.png');
+        wallTex.wrapS = wallTex.wrapT = RepeatWrapping;
+        wallTex.repeat.set(1, 1);
+
+        
+        const radius    = 9;    // ← 플랫폼·케이지 반지 반지름
+        const thickness = 0.1;  // ← 플랫폼 두께
+        const yOffset   = -0.6;  // ← 플랫폼 중심이 y=0에서 얼마나 위로 떠있을지
+        const cageHeight = 3;   // ← 케이지 벽 높이
+        const segments   = 8;   // ← 케이지 다각형 면 개수
+
+        // 원하는 케이지 중심 좌표
+        const cx = 3.5;    
+        const cz = -1;  
+
+
+        // 1) 플랫폼
+        // 2) 플랫폼 (텍스처 매핑)
+        const platformGeo = new THREE.CylinderGeometry(radius, radius, thickness, 64);
+        const platformMat = new THREE.MeshStandardMaterial({
+            map:        platformTex,   // ← 이 부분이 texture 매핑
+            transparent: true,
+            opacity:    0.8,           // ← 플랫폼의 불투명도
+            side:       THREE.DoubleSide,
+            roughness:  0.8,
+            metalness:  0.2
+        });
+
+        // const platformMat = new THREE.MeshStandardMaterial({
+        //     color:       0x333355,
+        //     transparent: true,
+        //     opacity:     0.4,
+        //     side:        THREE.DoubleSide,
+        //     roughness:   0.8,
+        //     metalness:   0.2
+        // });
+        const platform = new THREE.Mesh(platformGeo, platformMat);
+        platform.position.set(cx, yOffset, cz);
+        this.scene.add(platform);
+
+        const cageGeo = new THREE.CylinderGeometry(
+            radius, radius, cageHeight, segments, 1, true
+        );
+        const edges   = new THREE.EdgesGeometry(cageGeo);
+        const cageMat = new THREE.LineBasicMaterial({
+            color:       0xffffff,
+            transparent: true,
+            opacity:     0.8    // ← 여기서도 불투명도 조절
+        });
+        const cage = new THREE.LineSegments(edges, cageMat);
+        cage.position.set(
+            cx,
+            yOffset + cageHeight/2 + thickness/2,
+            cz
+        );
+        this.scene.add(cage);
+
+        // 3) 상단 링
+        // inner/outer 반지름도 radius 기준으로 다시 계산
+        const topRingGeo = new THREE.RingGeometry(
+            (radius - 0.1),  // 안쪽 반지름
+            (radius + 0.1),  // 바깥 반지름
+            segments
+        );
+        const topRingMat = new THREE.MeshBasicMaterial({
+            color:       0xaaaaaa,
+            transparent: true,
+            opacity:     0.6,       // 링의 투명도
+            side:        THREE.DoubleSide
+        });
+        const topRing = new THREE.Mesh(topRingGeo, topRingMat);
+        topRing.rotation.x = -Math.PI/2;
+        topRing.position.set(
+            cx,
+            yOffset + cageHeight + thickness/2,
+            cz
+        );
+        this.scene.add(topRing);
+        }
+
 
     createWireframeButton() {
         const button = document.createElement('button');
@@ -546,7 +642,7 @@ class Scene {
                             }
                         }
                     });
-
+                    
                     this.scene.add(model);
                     this.models.push(model);
                 },
