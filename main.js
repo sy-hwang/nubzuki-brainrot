@@ -519,7 +519,7 @@ class Scene {
         lines.forEach((text, i) => {
             const geo = new TextGeometry(text, {
             font: this.font,
-            size: 0.1,
+            size: 0.08,
             height: 0.02,
             curveSegments: 4,
             bevelEnabled: false
@@ -860,6 +860,9 @@ class Scene {
         const startPosition = this.camera.position.clone();
         const startTarget = this.controls.target.clone();
 
+        // 모델 인덱스 변경 추적용
+        let lastModelIndex = -1;
+
         // 현재 카메라 위치에서의 반지름과 각도 계산
         const dx = startPosition.x - center.x;
         const dz = startPosition.z - center.z;
@@ -879,9 +882,7 @@ class Scene {
 
             const currentTime = Date.now();
             const elapsedTime = currentTime - startTime;
-            const progress = Math.min(elapsedTime / totalDuration, 1);
-
-            if (progress < 1) {
+            if (elapsedTime < totalDuration) {
                 let currentPosition;
                 let currentTarget;
 
@@ -970,8 +971,17 @@ class Scene {
                             );
                             currentTarget = modelCenter.clone();
                         }
+                        
+                        if ( currentModelIndex !== lastModelIndex ) {
+                            this.showStats( this.models[currentModelIndex] );
+                            lastModelIndex = currentModelIndex;
+                        }
                     } else {
                         // 마지막 줌아웃 단계
+                        if ( this.infoPanel ) {
+                            this.scene.remove( this.infoPanel );
+                            this.infoPanel = null;
+                        }
                         const zoomOutProgress = (elapsedTime - (rotationDuration + modelDuration * this.models.length)) / zoomOutDuration;
                         const easedProgress = zoomOutProgress < 0.5
                             ? 4 * zoomOutProgress * zoomOutProgress * zoomOutProgress
