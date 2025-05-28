@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { EXRLoader } from 'three/addons/loaders/EXRLoader.js';
+import { TextureLoader, RepeatWrapping } from 'three';
+import { FontLoader } from 'three/addons/loaders/FontLoader.js';
+import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
 
 class Scene {
     constructor() {
@@ -49,7 +53,9 @@ class Scene {
         this.morphingStartTime = 0;
         this.shapekeyAnimationTime = 0; // shapekey 애니메이션을 위한 시간 변수 추가
         this.shapekeySpeed = 0.1; // 더 빠른 속도로 조정
-        
+        this.font = null;
+        this.textMesh = null;       // 화면에 뿌릴 3D 텍스트 Mesh
+        this.fontLoader = new FontLoader();
         this.init();
     }
 
@@ -61,6 +67,26 @@ class Scene {
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
         this.renderer.toneMappingExposure = 1.5;
         this.container.appendChild(this.renderer.domElement);
+        
+        // text
+        this.infoDiv = document.createElement('div');
+        this.container.style.position = 'relative';
+
+        // infoDiv 스타일
+        this.infoDiv = document.createElement('div');
+        this.infoDiv.style.position        = 'absolute';
+        this.infoDiv.style.top             = '20px';
+        this.infoDiv.style.left            = '20px';
+        this.infoDiv.style.zIndex          = '1000';
+        this.infoDiv.style.pointerEvents   = 'none';
+
+        this.infoDiv.style.padding = '8px 12px';
+        this.infoDiv.style.background = 'rgba(255,255,255,0.8)';
+        this.infoDiv.style.color = '#000';
+        this.infoDiv.style.fontFamily = 'Arial, sans-serif';
+        this.infoDiv.style.fontSize = '14px';
+        this.infoDiv.textContent = 'Click a model';
+        this.container.appendChild(this.infoDiv);
 
         // 배경색 설정
         this.scene.background = new THREE.Color(0xE0FFFF);
@@ -89,12 +115,33 @@ class Scene {
         pointLight3.position.set(5, 5, -5);
         this.scene.add(pointLight3);
 
+        // 폰트 로드
+        this.fontLoader.load(
+        'fonts/helvetiker_bold.typeface.json',
+        (font) => { this.font = font; }
+        );
         // 컨트롤 설정
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         this.controls.target.copy(this.originalControlsTarget);
         this.controls.maxDistance = 6;
+
+        // Environment Map
+        const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
+        pmremGenerator.compileEquirectangularShader();
+
+        new EXRLoader()
+            .setDataType(THREE.FloatType) // 중요!
+            .load('envs/minedump_flats_4k.exr', (texture) => {
+                const envMap = pmremGenerator.fromEquirectangular(texture).texture;
+
+                this.scene.environment = envMap;
+                this.scene.background = envMap;
+
+                texture.dispose();
+                pmremGenerator.dispose();
+            });
 
         // Wireframe Toggle 버튼 추가
         this.createWireframeButton();
@@ -117,6 +164,9 @@ class Scene {
         this.container.addEventListener('mousedown', (e) => this.handleDragStart(e));
         window.addEventListener('mousemove', (e) => this.handleDragMove(e));
         window.addEventListener('mouseup', (e) => this.handleDragEnd(e));
+        
+        // 아레나 생성
+        this.createArena();
 
         // GLB 파일 로드
         this.loadModels();
@@ -124,6 +174,100 @@ class Scene {
         // 애니메이션 시작
         this.animate();
     }
+
+    // 아레나 생성 함수
+    createArena() {
+        const radius    = 9;    // ← 플랫폼·케이지 반지 반지름
+        const thickness = 0.1;  // ← 플랫폼 두께
+        const yOffset   = -0.6;  // ← 플랫폼 중심이 y=0에서 얼마나 위로 떠있을지
+        const cageHeight = 3;   // ← 케이지 벽 높이
+        const segments   = 8;   // ← 케이지 다각형 면 개수
+
+        // 원하는 케이지 중심 좌표
+        const cx = 3.5;    
+        const cz = -1;  
+        const logoSize   = radius * 0.5;   // 로고가 차지할 대각 크기
+
+
+        // — 텍스처 로더 & 세팅 —
+        const loader       = new TextureLoader();
+        // — 1) 체인링크 알파맵 로드 —
+        const fenceAlpha = loader.load(
+            'textures/cage_wall.jpg',
+            );
+        fenceAlpha.wrapS = fenceAlpha.wrapT = RepeatWrapping;
+        fenceAlpha.repeat.set(segments, 1);
+        // 2) 로고 맵 (투명 PNG 추천)
+        const logoTex = loader.load('textures/ufc_logo.jpeg');
+        logoTex.wrapS = logoTex.wrapT = RepeatWrapping;
+        // 로고는 반복 필요 없으니 repeat.set(1,1)
+
+        // — 1) 체인링크 케이지 벽 —
+        const cageGeo = new THREE.CylinderGeometry(
+            radius, radius, cageHeight, segments, 1, true
+        );
+        // 2) fenceMat 정의 — 알파맵과 alphaTest만으로 컷아웃 처리
+        const fenceMat = new THREE.MeshStandardMaterial({
+        color:       0x000000,     // 살아남을 선 색
+        alphaMap:    fenceAlpha,  
+        alphaTest:   0.5,          // 50% 미만 픽셀은 투명 컷아웃
+        side:        THREE.DoubleSide,
+        metalness:   0.6,
+        roughness:   0.4
+        });
+
+        // 3) 알파맵 반전 (필요하다면)
+        fenceMat.onBeforeCompile = (shader) => {
+        shader.fragmentShader = shader.fragmentShader.replace(
+            'diffuseColor.a *= texture2D( alphaMap, vUv ).r;',
+            'diffuseColor.a *= (1.0 - texture2D( alphaMap, vUv ).r);'
+        );
+        };
+        
+
+        const fenceMesh = new THREE.Mesh(cageGeo, fenceMat);
+        fenceMesh.position.set(
+            cx,
+            yOffset + cageHeight/2 + thickness/2,
+            cz
+        );
+        this.scene.add(fenceMesh);
+
+        // (Optional) 에지라인 남기고 싶으면 아래 두 줄 추가
+        // const edges = new THREE.EdgesGeometry(cageGeo);
+        // this.scene.add(new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color:0x222222 })));
+
+        // — 2) 반투명 플랫폼 (기존) —
+        const platformGeo = new THREE.CylinderGeometry(radius, radius, thickness, 64);
+        const platformMat = new THREE.MeshStandardMaterial({
+            color:       0x888888,
+            transparent: true,
+            opacity:     0.8,
+            side:        THREE.DoubleSide,
+            roughness:   0.8,
+            metalness:   0.2
+        });
+        const platform = new THREE.Mesh(platformGeo, platformMat);
+        platform.position.set(cx, yOffset, cz);
+        this.scene.add(platform);
+
+        // — 3) 플랫폼 위 로고 렌더링 —
+        // PlaneGeometry를 살짝 떠서 로고를 덮어씌움
+        const logoGeo = new THREE.PlaneGeometry(logoSize, logoSize);
+        const logoMat = new THREE.MeshBasicMaterial({
+            map:         logoTex,
+            transparent: true,       // PNG 알파 유지
+            depthWrite:  false       // 플랫폼에 Z-파이팅 방지
+        });
+        const logoMesh = new THREE.Mesh(logoGeo, logoMat);
+        logoMesh.rotation.x = -Math.PI/2;
+        logoMesh.position.set(
+            cx,
+            yOffset + thickness/2 + 0.01,  // 플랫폼 윗면 바로 위
+            cz
+        );
+        this.scene.add(logoMesh);
+        }
 
     createWireframeButton() {
         const button = document.createElement('button');
@@ -333,20 +477,100 @@ class Scene {
         // 모델과의 교차 확인
         const intersects = this.raycaster.intersectObjects(this.models, true);
 
+        // 모델 클릭 시
         if (intersects.length > 0) {
-            const clickedModel = this.findParentModel(intersects[0].object);
-            if (clickedModel) {
-                // 이미 선택된 모델이면 아무 동작도 하지 않음
-                if (this.selectedModel === clickedModel) return;
-                this.moveCameraToModel(clickedModel);
+            const clicked = this.findParentModel(intersects[0].object);
+            if (clicked && this.selectedModel !== clicked) {
+                this.moveCameraToModel(clicked);
+                this.showStats(clicked);
             }
-        } else {
-            // 모델이 아닌 부분을 클릭했을 때
-            if (this.selectedModel) {
-                this.returnCameraToOriginalPosition();
+            } else {
+            // 빈 공간 클릭 시
+            if (this.infoPanel) {
+                this.scene.remove(this.infoPanel);
+                this.infoPanel = null;
+            }
+            if (this.selectedModel) this.returnCameraToOriginalPosition();
             }
         }
-    }
+    
+    showStats(model) {
+        // 이전 패널 제거
+        if (this.infoPanel) {
+            this.scene.remove(this.infoPanel);
+            this.infoPanel = null;
+        }
+        if (!this.font) return;
+
+        // 3) stats 라인 배열
+        const stats = model.userData.stats;
+        const lines = [
+            stats.Name,
+            `HP:     ${stats.HP}`,
+            `Attack: ${stats.Attack}`
+        ];
+
+        const colors = [
+            0xffffff,  // Name → 흰색
+            0xff0000,  // HP   → 빨간색
+            0xff0000   // Attack → 빨간색
+        ];
+        // 4) Panel 그룹
+        const panel = new THREE.Group();
+
+        // 최대 폭 계산용 임시 bbox
+        let maxWidth = 0;
+
+        // 5) 각 라인마다 TextGeometry, Mesh 생성
+        lines.forEach((text, i) => {
+            const geo = new TextGeometry(text, {
+            font: this.font,
+            size: 0.08,
+            height: 0.02,
+            curveSegments: 4,
+            bevelEnabled: false
+            });
+            geo.computeBoundingBox();
+            const w = geo.boundingBox.max.x - geo.boundingBox.min.x;
+            maxWidth = Math.max(maxWidth, w);
+
+            const mat = new THREE.MeshBasicMaterial({ color: colors[i] });
+            const mesh = new THREE.Mesh(geo, mat);
+
+            // 각 줄 Y 오프셋: 첫 줄이 위
+            const lineHeight = 0.3;
+            mesh.position.y = - i * lineHeight;
+
+            panel.add(mesh);
+        });
+
+        // 6) 그룹 전체 가운데 정렬: 왼쪽 정렬이 아니라, 텍스트 시작점이 왼쪽에 딱 붙도록
+        panel.children.forEach(child => {
+            // child.geometry.boundingBox 로 offset
+            const bb = child.geometry.boundingBox;
+            child.position.x = - maxWidth/2; 
+        });
+
+        // 7) 모델의 bounding box 이용해, panel 위치 잡기
+        const box = new THREE.Box3().setFromObject(model);
+        const center = box.getCenter(new THREE.Vector3());
+        const leftX  = box.min.x;      // 모델의 가장 왼쪽
+        const topY   = box.max.y;      // 모델의 가장 위
+
+        // 살짝 왼쪽으로, 모델 높이 중앙에
+        panel.position.set(
+            leftX - 0.3,                  // 모델 옆으로 0.2m 만큼 더 왼쪽
+            topY - 0.1,                   // 모델 위쪽에서 내려와서
+            center.z                      // Z는 모델 중앙과 동일
+        );
+
+        // 8) 카메라 바라보게
+        // panel.lookAt(this.camera.position);
+
+        // 9) 씬에 추가 & 참조 저장
+        this.scene.add(panel);
+        this.infoPanel = panel;
+        }
 
     findParentModel(object) {
         let current = object;
@@ -517,11 +741,23 @@ class Scene {
             'models/tra.glb'
         ];
 
+        const names = ['Banini', 'Lirili', 'Sahur', 'Tra'];
+
         modelPaths.forEach((path, index) => {
             loader.load(
                 path,
                 (gltf) => {
                     const model = gltf.scene;
+
+
+                    model.userData.stats = {
+                        Name:  names[index],
+                        HP:    Math.floor( Math.random() * 200 ) + 50,   // 예시 수치
+                        Attack: Math.floor( Math.random() * 100 ) + 20
+                        };
+                    model.userData.label = names[index];  // 클릭 시 표시할 텍스트
+                    // 모델 위치 조정 (간격을 3으로 조정)
+
                     model.position.set(index * 3, 0, 0);
                     
                     this.modelInitialRotations.set(model, {
@@ -553,7 +789,7 @@ class Scene {
                             }
                         }
                     });
-
+                    
                     this.scene.add(model);
                     this.models.push(model);
                 },
@@ -651,6 +887,10 @@ class Scene {
         }
 
         this.controls.update();
+        // ★ infoPanel 이 있으면 항상 카메라를 바라보도록
+            if ( this.infoPanel ) {
+                this.infoPanel.lookAt( this.camera.position );
+            }
         this.renderer.render(this.scene, this.camera);
     }
 
@@ -678,6 +918,9 @@ class Scene {
         const startPosition = this.camera.position.clone();
         const startTarget = this.controls.target.clone();
 
+        // 모델 인덱스 변경 추적용
+        let lastModelIndex = -1;
+
         // 현재 카메라 위치에서의 반지름과 각도 계산
         const dx = startPosition.x - center.x;
         const dz = startPosition.z - center.z;
@@ -697,9 +940,7 @@ class Scene {
 
             const currentTime = Date.now();
             const elapsedTime = currentTime - startTime;
-            const progress = Math.min(elapsedTime / totalDuration, 1);
-
-            if (progress < 1) {
+            if (elapsedTime < totalDuration) {
                 let currentPosition;
                 let currentTarget;
 
@@ -788,8 +1029,17 @@ class Scene {
                             );
                             currentTarget = modelCenter.clone();
                         }
+                        
+                        if ( currentModelIndex !== lastModelIndex ) {
+                            this.showStats( this.models[currentModelIndex] );
+                            lastModelIndex = currentModelIndex;
+                        }
                     } else {
                         // 마지막 줌아웃 단계
+                        if ( this.infoPanel ) {
+                            this.scene.remove( this.infoPanel );
+                            this.infoPanel = null;
+                        }
                         const zoomOutProgress = (elapsedTime - (rotationDuration + modelDuration * this.models.length)) / zoomOutDuration;
                         const easedProgress = zoomOutProgress < 0.5
                             ? 4 * zoomOutProgress * zoomOutProgress * zoomOutProgress
