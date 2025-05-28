@@ -1,5 +1,7 @@
 # 3D Rendering Contest
 
+![Representative Image](assets/representative.png)
+
 Demo : https://sy-hwang.github.io/nubzuki-brainrot/
 
 ## How to run locally
