@@ -127,7 +127,7 @@ class Scene {
 
         new EXRLoader()
             .setDataType(THREE.FloatType) // 중요!
-            .load('envs/minedump_flats_4k.exr', (texture) => {
+            .load('envs/industrial_pipe_and_valve_01_4k.exr', (texture) => {
                 const envMap = pmremGenerator.fromEquirectangular(texture).texture;
 
                 this.scene.environment = envMap;
@@ -173,14 +173,14 @@ class Scene {
     createArena() {
         const radius    = 9;    // ← 플랫폼·케이지 반지 반지름
         const thickness = 0.1;  // ← 플랫폼 두께
-        const yOffset   = -0.6;  // ← 플랫폼 중심이 y=0에서 얼마나 위로 떠있을지
+        const yOffset   = -0.57;  // ← 플랫폼 중심이 y=0에서 얼마나 위로 떠있을지
         const cageHeight = 3;   // ← 케이지 벽 높이
         const segments   = 8;   // ← 케이지 다각형 면 개수
 
         // 원하는 케이지 중심 좌표
         const cx = 3.5;    
         const cz = -1;  
-        const logoSize   = radius * 0.5;   // 로고가 차지할 대각 크기
+        const logoSize   = radius * 0.8;   // 로고가 차지할 대각 크기
 
 
         // — 텍스처 로더 & 세팅 —
@@ -191,9 +191,20 @@ class Scene {
             );
         fenceAlpha.wrapS = fenceAlpha.wrapT = RepeatWrapping;
         fenceAlpha.repeat.set(segments, 1);
-        // 2) 로고 맵 (투명 PNG 추천)
-        const logoTex = loader.load('textures/ufc_logo.jpeg');
-        logoTex.wrapS = logoTex.wrapT = RepeatWrapping;
+        // — 2) 로고 맵 (투명 PNG 추천) —
+        const logoTex = loader.load('textures/nubzuki_brainrot_logo.png', () => {
+            // 반복 X
+            logoTex.wrapS = logoTex.wrapT = THREE.ClampToEdgeWrapping;
+
+            // 🔥 추가 필터 설정 (이게 중요)
+            logoTex.minFilter = THREE.NearestFilter;
+            logoTex.magFilter = THREE.NearestFilter;
+
+            // 🔥 애니소트로피 설정
+            logoTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+
+            logoTex.needsUpdate = true;
+        });
         // 로고는 반복 필요 없으니 repeat.set(1,1)
 
         // — 1) 체인링크 케이지 벽 —
@@ -226,6 +237,27 @@ class Scene {
             cz
         );
         this.scene.add(fenceMesh);
+
+        // — 케이지 세그먼트 기둥 추가 —
+        const postRadius = 0.2;  // 기둥 반지름
+        const postHeight = cageHeight + 0.02;  // 약간 더 크게
+        const postGeo = new THREE.CylinderGeometry(postRadius, postRadius, postHeight, 16);
+        const postMat = new THREE.MeshStandardMaterial({
+            color: 0x444444,
+            metalness: 0.3,
+            roughness: 0.8
+        });
+
+        // 세그먼트 수만큼 기둥 생성
+        for (let i = 0; i < segments; i++) {
+            const angle = (i / segments) * Math.PI * 2;
+            const x = cx + radius * Math.cos(angle);
+            const z = cz + radius * Math.sin(angle);
+
+            const post = new THREE.Mesh(postGeo, postMat);
+            post.position.set(x, yOffset + postHeight / 2 + thickness / 2, z);
+            this.scene.add(post);
+        }
 
         // (Optional) 에지라인 남기고 싶으면 아래 두 줄 추가
         // const edges = new THREE.EdgesGeometry(cageGeo);
@@ -498,16 +530,30 @@ class Scene {
 
         // 3) stats 라인 배열
         const stats = model.userData.stats;
+        let nameLines = [];
+        const name = stats.Name;
+
+        // 이름 길면 두 줄로 나누기
+        const maxLineLength = 21;
+        if (name.length > maxLineLength) {
+            const midpoint = Math.floor(name.length / 2);
+            const splitIndex = name.lastIndexOf(' ', midpoint) > 0 ? name.lastIndexOf(' ', midpoint) : midpoint;
+            nameLines = [name.slice(0, splitIndex), name.slice(splitIndex).trim()];
+        } else {
+            nameLines = [name];
+        }
+
+        // 줄 수에 맞춰 lines와 colors 생성
         const lines = [
-            stats.Name,
+            ...nameLines,
             `HP:     ${stats.HP}`,
             `Attack: ${stats.Attack}`
         ];
 
         const colors = [
-            0xffffff,  // Name → 흰색
-            0xff0000,  // HP   → 빨간색
-            0xff0000   // Attack → 빨간색
+            ...nameLines.map(() => 0xffffff),
+            0xff0000,
+            0xff0000
         ];
         // 4) Panel 그룹
         const panel = new THREE.Group();
@@ -553,8 +599,8 @@ class Scene {
 
         // 살짝 왼쪽으로, 모델 높이 중앙에
         panel.position.set(
-            leftX - 0.3,                  // 모델 옆으로 0.2m 만큼 더 왼쪽
-            topY - 0.1,                   // 모델 위쪽에서 내려와서
+            leftX - 0.4,                  // 모델 옆으로 0.2m 만큼 더 왼쪽
+            topY,                   // 모델 위쪽에서 내려와서
             center.z                      // Z는 모델 중앙과 동일
         );
 
@@ -726,7 +772,7 @@ class Scene {
             'models/tra.glb'
         ];
 
-        const names = ['Banini', 'Lirili', 'Sahur', 'Tra'];
+        const names = ['Nubjukchini Bananini', 'Nubchokchoki Jjillillala', 'Juk Juk Juk Juk Juk Juk Juk Juk, Nubzuru', 'Tralululala Nubrulala'];
 
         modelPaths.forEach((path, index) => {
             loader.load(
