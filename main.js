@@ -87,7 +87,7 @@ class Scene {
         this.infoDiv.style.color = '#000';
         this.infoDiv.style.fontFamily = 'Arial, sans-serif';
         this.infoDiv.style.fontSize = '14px';
-        this.infoDiv.textContent = 'debugging';
+        this.infoDiv.textContent = 'debugging..';
         this.container.appendChild(this.infoDiv);
 
         // 배경색 설정
@@ -127,7 +127,6 @@ class Scene {
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         this.controls.target.copy(this.originalControlsTarget);
-        this.controls.maxDistance = 6;
 
         // Environment Map
         const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
@@ -1016,11 +1015,12 @@ class Scene {
 
     startCameraTrajectory() {
         const startTime = Date.now();
+        const zoomOutDuration = 1000; // 1초 줌아웃
         const rotationDuration = 1500; // 1.5초 회전
         const moveDuration = 500; // 0.5초 이동
         const pauseDuration = 1250; // 1.25초 멈춤
-        const zoomOutDuration = 500; // 0.5초 줌아웃
-        const totalDuration = rotationDuration + (moveDuration + pauseDuration) * this.models.length + zoomOutDuration;
+        const finalZoomOutDuration = 500; // 0.5초 줌아웃
+        const totalDuration = zoomOutDuration + rotationDuration + (moveDuration + pauseDuration) * this.models.length + finalZoomOutDuration;
         const center = new THREE.Vector3(4.5, 0, 0);
         const startPosition = this.camera.position.clone();
         const startTarget = this.controls.target.clone();
@@ -1048,18 +1048,38 @@ class Scene {
             if (elapsedTime < totalDuration) {
                 let currentPosition;
                 let currentTarget;
-                if (elapsedTime < rotationDuration) {
-                    // 초기 회전 단계
-                    const rotationProgress = elapsedTime / rotationDuration;
+                if (elapsedTime < zoomOutDuration) {
+                    // 초기 줌아웃 단계
+                    const zoomOutProgress = elapsedTime / zoomOutDuration;
+                    // 더 선형적인 이징 함수 사용
+                    const easedProgress = zoomOutProgress;
+                    
+                    // 카메라를 뒤로 이동하고 위에서 아래를 내려다보는 각도로 설정
+                    const targetPosition = new THREE.Vector3(
+                        center.x + Math.cos(startAngle) * (radius + 5),
+                        center.y + 5,
+                        center.z + Math.sin(startAngle) * (radius + 5)
+                    );
+                    
+                    currentPosition = new THREE.Vector3().lerpVectors(
+                        startPosition,
+                        targetPosition,
+                        easedProgress
+                    );
+                    currentTarget = center.clone();
+                } else if (elapsedTime < zoomOutDuration + rotationDuration) {
+                    // 회전 단계
+                    const rotationProgress = (elapsedTime - zoomOutDuration) / rotationDuration;
+                    // 선형적인 회전 진행
                     const angle = startAngle + rotationProgress * Math.PI * 2;
                     currentPosition = new THREE.Vector3(
-                        center.x + Math.cos(angle) * radius,
-                        startPosition.y,
-                        center.z + Math.sin(angle) * radius
+                        center.x + Math.cos(angle) * (radius + 5),
+                        center.y + 5,
+                        center.z + Math.sin(angle) * (radius + 5)
                     );
                     currentTarget = center.clone();
                 } else {
-                    const remainingTime = elapsedTime - rotationDuration;
+                    const remainingTime = elapsedTime - (zoomOutDuration + rotationDuration);
                     const modelDuration = moveDuration + pauseDuration;
                     const currentModelIndex = Math.floor(remainingTime / modelDuration);
                     if (currentModelIndex < cameraModelOrder.length) {
@@ -1079,10 +1099,12 @@ class Scene {
                             
                             let prevPosition;
                             if (currentModelIndex === 0) {
+                                // 회전이 끝난 위치에서 시작
+                                const lastRotationAngle = startAngle + Math.PI * 2;
                                 prevPosition = new THREE.Vector3(
-                                    initialCenter.x,
-                                    initialCenter.y + this.jumpHeight,
-                                    initialCenter.z + distance * 2
+                                    center.x + Math.cos(lastRotationAngle) * (radius + 5),
+                                    center.y + 5,
+                                    center.z + Math.sin(lastRotationAngle) * (radius + 5)
                                 );
                             } else {
                                 const prevModelIdx = cameraModelOrder[currentModelIndex - 1];
@@ -1145,7 +1167,7 @@ class Scene {
                         if (this.isJumping) {
                             this.isJumping = false;
                         }
-                        const zoomOutProgress = (elapsedTime - (rotationDuration + modelDuration * cameraModelOrder.length)) / zoomOutDuration;
+                        const zoomOutProgress = (elapsedTime - (zoomOutDuration + rotationDuration + modelDuration * cameraModelOrder.length)) / finalZoomOutDuration;
                         const easedProgress = zoomOutProgress < 0.5
                             ? 2 * zoomOutProgress * zoomOutProgress
                             : -1 + (4 - 2 * zoomOutProgress) * zoomOutProgress;
