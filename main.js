@@ -56,6 +56,7 @@ class Scene {
         this.font = null;
         this.textMesh = null;       // 화면에 뿌릴 3D 텍스트 Mesh
         this.fontLoader = new FontLoader();
+        this.uiElements = [];
         this.init();
     }
 
@@ -173,6 +174,14 @@ class Scene {
 
         // 애니메이션 시작
         this.animate();
+
+        // 버튼/안내 텍스트 일괄 제어를 위한 참조 저장
+        this.uiElements = [
+            ...this.container.querySelectorAll('button'),
+            this.infoDiv
+        ];
+        // 안내 텍스트 원본 저장
+        this.infoDivOriginalText = this.infoDiv.textContent;
     }
 
     // 아레나 생성 함수
@@ -330,6 +339,9 @@ class Scene {
         });
 
         this.container.appendChild(button);
+        // 버튼 참조 저장
+        if (!this.uiElements) this.uiElements = [];
+        this.uiElements.push(button);
     }
 
     createPlayButton() {
@@ -351,6 +363,9 @@ class Scene {
         });
 
         this.container.appendChild(this.playButton);
+        // 버튼 참조 저장
+        if (!this.uiElements) this.uiElements = [];
+        this.uiElements.push(this.playButton);
     }
 
     createAutoRotateButton() {
@@ -373,6 +388,9 @@ class Scene {
         });
 
         this.container.appendChild(button);
+        // 버튼 참조 저장
+        if (!this.uiElements) this.uiElements = [];
+        this.uiElements.push(button);
     }
 
     createDragBoxDiv() {
@@ -467,6 +485,14 @@ class Scene {
     }
 
     onMouseClick(event) {
+        // play 중이면 클릭 시 즉시 중단
+        if (this.isPlaying) {
+            this.isPlaying = false;
+            this.showUI();
+            this.playButton.textContent = 'Play';
+            this.returnCameraToOriginalPosition();
+            return;
+        }
         // 마우스 위치를 정규화된 장치 좌표로 변환
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
@@ -734,13 +760,13 @@ class Scene {
     loadModels() {
         const loader = new GLTFLoader();
         
+        // 화면 배치 순서: banini, lirili, sahur, tra
         const modelPaths = [
             'models/banini.glb',
             'models/lirili.glb',
             'models/sahur_shapekey.glb',
             'models/tra.glb'
         ];
-
         const names = ['Banini', 'Lirili', 'Sahur', 'Tra'];
 
         modelPaths.forEach((path, index) => {
@@ -897,12 +923,11 @@ class Scene {
     togglePlay() {
         this.isPlaying = !this.isPlaying;
         this.playButton.textContent = this.isPlaying ? 'Stop' : 'Play';
-        
         if (this.isPlaying) {
-            // 재생 시작 시 카메라 트라젝토리 시작
+            this.hideUI();
             this.startCameraTrajectory();
         } else {
-            // 재생 중지 시 카메라를 원위치로
+            this.showUI();
             this.returnCameraToOriginalPosition();
         }
     }
@@ -927,23 +952,27 @@ class Scene {
         const radius = Math.sqrt(dx * dx + dz * dz);
         const startAngle = Math.atan2(dz, dx);
 
-        // 각 모델별 카메라 위치 변화를 위한 배열
+        // 카메라가 따라갈 모델 순서: sahur, tra, banini, lirili
+        // models의 인덱스: banini(0), lirili(1), sahur(2), tra(3)
+        const cameraModelOrder = [2, 3, 0, 1];
+        // 각 모델별 카메라 위치 변화를 위한 배열 (순서 맞춰서)
         const cameraPositions = [
-            { x: 0.0, y: 0.1, z: 1.5 },  // 세 번째 모델: 아래에서 보기
-            { x: 0.3, y: 0.2, z: 1.0 },    // 네 번째 모델: 오른쪽 위에서 보기
-            { x: 0.0, y: 0.2, z: 1.5 },  // 첫 번째 모델: 왼쪽에서 보기
-            { x: -0.4, y: 0.3, z: 1.3 }  // 두 번째 모델: 왼쪽 위에서 보기
+            { x: 0.0, y: 0.1, z: 1.5 },  // sahur
+            { x: 0.3, y: 0.2, z: 1.0 },  // tra
+            { x: 0.0, y: 0.2, z: 1.5 },  // banini
+            { x: -0.4, y: 0.3, z: 1.3 }  // lirili
         ];
 
         const animate = () => {
-            if (!this.isPlaying) return;
-
+            if (!this.isPlaying) {
+                this.showUI();
+                return;
+            }
             const currentTime = Date.now();
             const elapsedTime = currentTime - startTime;
             if (elapsedTime < totalDuration) {
                 let currentPosition;
                 let currentTarget;
-
                 if (elapsedTime < rotationDuration) {
                     // 초기 회전 단계
                     const rotationProgress = elapsedTime / rotationDuration;
@@ -958,26 +987,20 @@ class Scene {
                     const remainingTime = elapsedTime - rotationDuration;
                     const modelDuration = moveDuration + pauseDuration;
                     const currentModelIndex = Math.floor(remainingTime / modelDuration);
-                    
-                    if (currentModelIndex < this.models.length) {
+                    if (currentModelIndex < cameraModelOrder.length) {
                         const modelProgress = (remainingTime % modelDuration) / moveDuration;
-                        
+                        const modelIdx = cameraModelOrder[currentModelIndex];
                         if (modelProgress < 1) {
-                            // 모델로 이동 단계
                             const easedProgress = modelProgress < 0.5
                                 ? 4 * modelProgress * modelProgress * modelProgress
                                 : 1 - Math.pow(-2 * modelProgress + 2, 3) / 2;
-
-                            const model = this.models[currentModelIndex];
+                            const model = this.models[modelIdx];
                             const box = new THREE.Box3().setFromObject(model);
                             const modelCenter = box.getCenter(new THREE.Vector3());
                             const size = box.getSize(new THREE.Vector3());
                             const maxDim = Math.max(size.x, size.y, size.z);
-
-                            // 이전 모델의 위치 계산
                             let prevPosition;
                             if (currentModelIndex === 0) {
-                                // 첫 번째 모델로 이동할 때는 회전이 끝난 위치에서 시작
                                 const rotationEndAngle = startAngle + Math.PI * 2;
                                 prevPosition = new THREE.Vector3(
                                     center.x + Math.cos(rotationEndAngle) * radius,
@@ -985,8 +1008,8 @@ class Scene {
                                     center.z + Math.sin(rotationEndAngle) * radius
                                 );
                             } else {
-                                // 이전 모델의 위치
-                                const prevModel = this.models[currentModelIndex - 1];
+                                const prevModelIdx = cameraModelOrder[currentModelIndex - 1];
+                                const prevModel = this.models[prevModelIdx];
                                 const prevBox = new THREE.Box3().setFromObject(prevModel);
                                 const prevCenter = prevBox.getCenter(new THREE.Vector3());
                                 const prevPos = cameraPositions[currentModelIndex - 1];
@@ -996,32 +1019,27 @@ class Scene {
                                     prevCenter.z + prevPos.z
                                 );
                             }
-
-                            // 현재 모델의 목표 위치
                             const targetPos = cameraPositions[currentModelIndex];
                             const targetPosition = new THREE.Vector3(
                                 modelCenter.x + targetPos.x,
                                 modelCenter.y + targetPos.y,
                                 modelCenter.z + targetPos.z
                             );
-
                             currentPosition = new THREE.Vector3().lerpVectors(
                                 prevPosition,
                                 targetPosition,
                                 easedProgress
                             );
                             currentTarget = new THREE.Vector3().lerpVectors(
-                                currentModelIndex === 0 ? center : this.models[currentModelIndex - 1].position,
+                                currentModelIndex === 0 ? center : this.models[cameraModelOrder[currentModelIndex - 1]].position,
                                 modelCenter,
                                 easedProgress
                             );
                         } else {
-                            // 멈춤 단계
-                            const model = this.models[currentModelIndex];
+                            const model = this.models[modelIdx];
                             const box = new THREE.Box3().setFromObject(model);
                             const modelCenter = box.getCenter(new THREE.Vector3());
                             const targetPos = cameraPositions[currentModelIndex];
-
                             currentPosition = new THREE.Vector3(
                                 modelCenter.x + targetPos.x,
                                 modelCenter.y + targetPos.y,
@@ -1029,33 +1047,30 @@ class Scene {
                             );
                             currentTarget = modelCenter.clone();
                         }
-                        
-                        if ( currentModelIndex !== lastModelIndex ) {
-                            this.showStats( this.models[currentModelIndex] );
+                        if (currentModelIndex !== lastModelIndex) {
+                            this.showStats(this.models[modelIdx]);
                             lastModelIndex = currentModelIndex;
                         }
                     } else {
                         // 마지막 줌아웃 단계
-                        if ( this.infoPanel ) {
-                            this.scene.remove( this.infoPanel );
+                        if (this.infoPanel) {
+                            this.scene.remove(this.infoPanel);
                             this.infoPanel = null;
                         }
-                        const zoomOutProgress = (elapsedTime - (rotationDuration + modelDuration * this.models.length)) / zoomOutDuration;
+                        const zoomOutProgress = (elapsedTime - (rotationDuration + modelDuration * cameraModelOrder.length)) / zoomOutDuration;
                         const easedProgress = zoomOutProgress < 0.5
                             ? 4 * zoomOutProgress * zoomOutProgress * zoomOutProgress
                             : 1 - Math.pow(-2 * zoomOutProgress + 2, 3) / 2;
-
-                        const lastModel = this.models[this.models.length - 1];
+                        const lastModelIdx = cameraModelOrder[cameraModelOrder.length - 1];
+                        const lastModel = this.models[lastModelIdx];
                         const box = new THREE.Box3().setFromObject(lastModel);
                         const modelCenter = box.getCenter(new THREE.Vector3());
-                        const lastPos = cameraPositions[this.models.length - 1];
-
+                        const lastPos = cameraPositions[cameraModelOrder.length - 1];
                         const lastPosition = new THREE.Vector3(
                             modelCenter.x + lastPos.x,
                             modelCenter.y + lastPos.y,
                             modelCenter.z + lastPos.z
                         );
-
                         currentPosition = new THREE.Vector3().lerpVectors(
                             lastPosition,
                             startPosition,
@@ -1068,21 +1083,19 @@ class Scene {
                         );
                     }
                 }
-
                 this.camera.position.copy(currentPosition);
                 this.controls.target.copy(currentTarget);
                 this.controls.update();
                 requestAnimationFrame(animate);
             } else {
-                // 애니메이션 완료 후 원래 위치로 복귀
                 this.camera.position.copy(startPosition);
                 this.controls.target.copy(startTarget);
                 this.controls.update();
                 this.isPlaying = false;
                 this.playButton.textContent = 'Play';
+                this.showUI();
             }
         };
-
         animate();
     }
 
@@ -1145,6 +1158,22 @@ class Scene {
         };
 
         animate();
+    }
+
+    // UI 숨기기/보이기 함수 수정: 플레이 중에는 안내 텍스트도 완전히 사라지게
+    hideUI() {
+        if (!this.uiElements) return;
+        this.uiElements.forEach(el => {
+            if (el && el.tagName === 'BUTTON') el.style.display = 'none';
+        });
+        if (this.infoDiv) this.infoDiv.style.display = 'none';
+    }
+    showUI() {
+        if (!this.uiElements) return;
+        this.uiElements.forEach(el => {
+            if (el && el.tagName === 'BUTTON') el.style.display = 'block';
+        });
+        if (this.infoDiv) this.infoDiv.style.display = 'block';
     }
 }
 
