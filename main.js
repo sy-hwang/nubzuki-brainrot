@@ -319,7 +319,7 @@ class Scene {
 
     createAutoRotateButton() {
         const button = document.createElement('button');
-        button.textContent = 'Auto Rotate';
+        button.textContent = 'Stop Rotate';
         button.style.position = 'absolute';
         button.style.bottom = '160px'; // Play 버튼 위에 배치
         button.style.left = '20px';
@@ -333,7 +333,7 @@ class Scene {
         button.addEventListener('click', (event) => {
             event.stopPropagation();
             this.autoRotate = !this.autoRotate;
-            button.textContent = this.autoRotate ? 'Auto Rotate' : 'Stop Rotate';
+            button.textContent = this.autoRotate ? 'Stop Rotate' : 'Auto Rotate';
         });
 
         this.container.appendChild(button);
@@ -358,6 +358,9 @@ class Scene {
         button.addEventListener('click', (event) => {
             event.stopPropagation();
             this.togglePhotoMode();
+            // 버튼 텍스트와 스타일 업데이트
+            button.textContent = this.isPhotoMode ? 'Exit Edit Mode' : 'Edit Mode';
+            button.style.backgroundColor = this.isPhotoMode ? '#ffeb3b' : '#ffffff';
         });
 
         this.container.appendChild(button);
@@ -502,8 +505,14 @@ class Scene {
     }
 
     onMouseClick(event) {
+        console.log('=== Mouse Click Debug ===');
+        console.log('Current selectedModel:', this.selectedModel);
+        console.log('Is Photo Mode:', this.isPhotoMode);
+        console.log('Is Playing:', this.isPlaying);
+
         // play 중이면 클릭 시 즉시 중단
         if (this.isPlaying) {
+            console.log('Stopping play mode');
             this.isPlaying = false;
             this.showUI();
             this.playButton.textContent = 'Play';
@@ -513,6 +522,7 @@ class Scene {
 
         // 포토 모드에서는 카메라 이동 없이 모델 선택만
         if (this.isPhotoMode) {
+            console.log('Photo mode - handling model selection');
             this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
             this.raycaster.setFromCamera(this.mouse, this.camera);
@@ -520,11 +530,13 @@ class Scene {
             
             if (intersects.length > 0) {
                 const clicked = this.findParentModel(intersects[0].object);
+                console.log('Photo mode - clicked model:', clicked);
                 if (clicked && this.selectedModel !== clicked) {
                     this.selectedModel = clicked;
                     this.showStats(clicked);
                 }
             } else {
+                console.log('Photo mode - clicked empty space');
                 if (this.infoPanel) {
                     this.scene.remove(this.infoPanel);
                     this.infoPanel = null;
@@ -535,6 +547,7 @@ class Scene {
         }
 
         // 일반 모드에서는 기존 동작 유지
+        console.log('Normal mode - handling click');
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
         this.raycaster.setFromCamera(this.mouse, this.camera);
@@ -542,18 +555,31 @@ class Scene {
 
         if (intersects.length > 0) {
             const clicked = this.findParentModel(intersects[0].object);
+            console.log('Normal mode - clicked model:', clicked);
             if (clicked) {
+                this.selectedModel = clicked;
+                console.log('Setting selectedModel to:', clicked);
                 this.moveCameraToModel(clicked);
                 this.showStats(clicked);
             }
         } else {
+            console.log('Normal mode - clicked empty space');
+            console.log('Current selectedModel before check:', this.selectedModel);
             if (this.infoPanel) {
                 this.scene.remove(this.infoPanel);
                 this.infoPanel = null;
             }
-            // 빈 공간 클릭 시 항상 카메라 원위치로 이동
-            this.returnCameraToOriginalPosition();
+            // 모델이 선택된 상태(zoom in 상태)에서만 카메라 원위치로 이동
+            if (this.selectedModel) {
+                console.log('Returning camera to original position');
+                this.returnCameraToOriginalPosition();
+                this.selectedModel = null;
+                console.log('Cleared selectedModel');
+            } else {
+                console.log('No model selected, not returning camera');
+            }
         }
+        console.log('=== End Mouse Click Debug ===');
     }
     
     showStats(model) {
@@ -685,13 +711,13 @@ class Scene {
     }
 
     moveCameraToModel(model) {
-        // 이전에 선택된 모델이 있다면 카메라를 원위치로
-        if (this.selectedModel) {
-            this.returnCameraToOriginalPosition();
-        }
+        console.log('=== moveCameraToModel Debug ===');
+        console.log('Moving camera to model:', model);
+        console.log('Current selectedModel:', this.selectedModel);
 
         // 선택된 모델 저장
         this.selectedModel = model;
+        console.log('Set selectedModel to:', this.selectedModel);
 
         // 모델의 바운딩 박스 계산
         const box = new THREE.Box3().setFromObject(model);
@@ -740,6 +766,7 @@ class Scene {
         if (!hasShapekey) {
             this.startJumpAnimation(model);
         }
+        console.log('=== End moveCameraToModel Debug ===');
     }
 
     startJumpAnimation(model) {
@@ -781,6 +808,9 @@ class Scene {
     }
 
     returnCameraToOriginalPosition() {
+        console.log('=== returnCameraToOriginalPosition Debug ===');
+        console.log('Current selectedModel:', this.selectedModel);
+        
         // 시작 위치와 목표 위치 설정
         this.cameraStartPosition.copy(this.camera.position);
         this.cameraEndPosition.copy(this.originalCameraPosition);
@@ -847,12 +877,14 @@ class Scene {
                 requestAnimationFrame(checkCameraMovement);
             } else {
                 // 카메라 이동이 완료된 후에 모델 선택 해제
+                console.log('Camera movement complete, clearing selectedModel');
                 this.selectedModel = null;
                 // 컨트롤 다시 활성화
                 this.controls.enabled = true;
             }
         };
         checkCameraMovement();
+        console.log('=== End returnCameraToOriginalPosition Debug ===');
     }
 
     loadModels() {
@@ -1336,6 +1368,13 @@ class Scene {
     togglePhotoMode() {
         this.isPhotoMode = !this.isPhotoMode;
         
+        // Play 버튼 비활성화/활성화
+        if (this.playButton) {
+            this.playButton.disabled = this.isPhotoMode;
+            this.playButton.style.opacity = this.isPhotoMode ? '0.5' : '1';
+            this.playButton.style.cursor = this.isPhotoMode ? 'not-allowed' : 'pointer';
+        }
+        
         if (this.isPhotoMode) {
             // 포토 모드 진입
             this.models.forEach(model => {
@@ -1350,7 +1389,12 @@ class Scene {
                         x: model.position.x,
                         y: model.position.y,
                         z: model.position.z,
-                        scale: model.scale.clone()
+                        scale: model.scale.clone(),
+                        rotation: {
+                            x: model.rotation.x,
+                            y: model.rotation.y,
+                            z: model.rotation.z
+                        }
                     });
                 }
                 
@@ -1371,7 +1415,7 @@ class Scene {
         } else {
             // 포토 모드 종료
             this.models.forEach(model => {
-                // 원래 스케일과 위치로 복원
+                // 원래 스케일, 위치, 회전값으로 복원
                 const originalPosition = this.originalPositions.get(model);
                 if (originalPosition) {
                     model.scale.copy(originalPosition.scale);
@@ -1379,6 +1423,11 @@ class Scene {
                         originalPosition.x,
                         originalPosition.y,
                         originalPosition.z
+                    );
+                    model.rotation.set(
+                        originalPosition.rotation.x,
+                        originalPosition.rotation.y,
+                        originalPosition.rotation.z
                     );
                 }
             });
