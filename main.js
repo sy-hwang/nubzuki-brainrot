@@ -46,11 +46,6 @@ class Scene {
         this.rotationSpeed = 0.01; // 회전 속도 5배 증가
         this.rotationTime = 0; // 회전 시간 추적
         this.rotationRange = Math.PI / 4; // 45도 (라디안)
-        this.morphingMeshes = [];
-        this.morphingProgress = 0;
-        this.isMorphing = false;
-        this.morphingDuration = 2000; // 2초 동안 모핑
-        this.morphingStartTime = 0;
         this.shapekeyAnimationTime = 0; // shapekey 애니메이션을 위한 시간 변수 추가
         this.shapekeySpeed = 0.1; // 더 빠른 속도로 조정
         this.font = null;
@@ -1287,67 +1282,6 @@ class Scene {
                 this.showUI();
             }
         };
-        animate();
-    }
-
-    setupMorphing(sourceMesh, targetMesh) {
-        // 두 메쉬의 정점 수가 같은지 확인
-        if (sourceMesh.geometry.attributes.position.count !== targetMesh.geometry.attributes.position.count) {
-            console.error('메쉬의 정점 수가 일치하지 않습니다.');
-            return;
-        }
-
-        // 소스 메쉬에 MorphTarget 추가
-        sourceMesh.morphTargetDictionary = {};
-        sourceMesh.morphTargetInfluences = [];
-
-        // 타겟 메쉬의 위치를 MorphTarget으로 추가
-        const positions = targetMesh.geometry.attributes.position.array;
-        sourceMesh.morphTargetDictionary['target'] = 0;
-        sourceMesh.morphTargetInfluences[0] = 0;
-
-        // MorphTarget 생성
-        const morphTarget = {
-            name: 'target',
-            vertices: new Float32Array(positions)
-        };
-
-        sourceMesh.geometry.morphTargets = [morphTarget];
-        sourceMesh.material.morphTargets = true;
-
-        // 모핑할 메쉬 저장
-        this.morphingMeshes = [sourceMesh, targetMesh];
-    }
-
-    startMorphing() {
-        if (this.morphingMeshes.length !== 2) return;
-        
-        this.isMorphing = true;
-        this.morphingStartTime = Date.now();
-        this.morphingProgress = 0;
-
-        const animate = () => {
-            if (!this.isMorphing) return;
-
-            const currentTime = Date.now();
-            const elapsedTime = currentTime - this.morphingStartTime;
-            this.morphingProgress = Math.min(elapsedTime / this.morphingDuration, 1);
-
-            // 부드러운 이징 함수 적용
-            const easedProgress = this.morphingProgress < 0.5
-                ? 4 * this.morphingProgress * this.morphingProgress * this.morphingProgress
-                : 1 - Math.pow(-2 * this.morphingProgress + 2, 3) / 2;
-
-            // MorphTarget 영향도 업데이트
-            this.morphingMeshes[0].morphTargetInfluences[0] = easedProgress;
-
-            if (this.morphingProgress < 1) {
-                requestAnimationFrame(animate);
-            } else {
-                this.isMorphing = false;
-            }
-        };
-
         animate();
     }
 
