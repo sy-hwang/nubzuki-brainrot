@@ -46,10 +46,16 @@ class Scene {
         this.rotationSpeed = 0.01; // 회전 속도 5배 증가
         this.rotationTime = 0; // 회전 시간 추적
         this.rotationRange = Math.PI / 4; // 45도 (라디안)
+        this.morphingMeshes = [];
+        this.morphingProgress = 0;
+        this.isMorphing = false;
+        this.morphingDuration = 2000; // 2초 동안 모핑
+        this.morphingStartTime = 0;
+        this.shapekeyAnimationTime = 0; // shapekey 애니메이션을 위한 시간 변수 추가
+        this.shapekeySpeed = 0.1; // 더 빠른 속도로 조정
         this.font = null;
         this.textMesh = null;       // 화면에 뿌릴 3D 텍스트 Mesh
         this.fontLoader = new FontLoader();
-
         this.init();
     }
 
@@ -599,7 +605,7 @@ class Scene {
         this.cameraStartPosition.copy(this.camera.position);
         this.cameraEndPosition.set(
             center.x,
-            center.y + this.jumpHeight, // 점프 높이만큼 카메라 위치를 위로 조정
+            center.y + this.jumpHeight,
             center.z + distance
         );
 
@@ -622,8 +628,17 @@ class Scene {
             });
         }
 
-        // 점프 애니메이션 시작
-        this.startJumpAnimation(model);
+        // shapekey가 있는 모델(sahur)이 아닌 경우에만 점프 애니메이션 시작
+        let hasShapekey = false;
+        model.traverse((child) => {
+            if (child.isMesh && child.morphTargetDictionary) {
+                hasShapekey = true;
+            }
+        });
+
+        if (!hasShapekey) {
+            this.startJumpAnimation(model);
+        }
     }
 
     startJumpAnimation(model) {
@@ -722,7 +737,7 @@ class Scene {
         const modelPaths = [
             'models/banini.glb',
             'models/lirili.glb',
-            'models/sahur.glb',
+            'models/sahur_shapekey.glb',
             'models/tra.glb'
         ];
 
@@ -733,6 +748,8 @@ class Scene {
                 path,
                 (gltf) => {
                     const model = gltf.scene;
+
+
                     model.userData.stats = {
                         Name:  names[index],
                         HP:    Math.floor( Math.random() * 200 ) + 50,   // 예시 수치
@@ -740,25 +757,35 @@ class Scene {
                         };
                     model.userData.label = names[index];  // 클릭 시 표시할 텍스트
                     // 모델 위치 조정 (간격을 3으로 조정)
+
                     model.position.set(index * 3, 0, 0);
                     
-                    // 모델의 초기 회전값 저장
                     this.modelInitialRotations.set(model, {
                         x: model.rotation.x,
                         y: model.rotation.y,
                         z: model.rotation.z
                     });
                     
-                    // 모델의 모든 메시에 대해 재질 설정
                     model.traverse((child) => {
                         if (child.isMesh) {
-                            // 재질이 있다면 설정
                             if (child.material) {
                                 child.material.needsUpdate = true;
-                                // 재질의 기본 설정
                                 child.material.metalness = 0.5;
                                 child.material.roughness = 0.5;
                                 child.material.envMapIntensity = 1.0;
+                                
+                                if (path === 'models/sahur_shapekey.glb' && child.morphTargetDictionary) {
+                                    child.material.morphTargets = true;
+                                    child.material.morphNormals = true;
+                                    
+                                    if (child.morphTargetInfluences) {
+                                        for (let i = 0; i < child.morphTargetInfluences.length; i++) {
+                                            child.morphTargetInfluences[i] = 0;
+                                        }
+                                    }
+                                    
+                                    child.material.needsUpdate = true;
+                                }
                             }
                         }
                     });
@@ -785,7 +812,38 @@ class Scene {
     animate() {
         requestAnimationFrame(() => this.animate());
 
-        // 자동 회전 로직 수정
+        this.shapekeyAnimationTime += this.shapekeySpeed;
+        
+        this.models.forEach(model => {
+            model.traverse((child) => {
+                if (child.isMesh && child.morphTargetDictionary) {
+                    // 사인 함수를 사용하여 0~1 사이의 값으로 정규화
+                    const value = (Math.sin(this.shapekeyAnimationTime) + 1) / 2;
+                    
+                    if (child.name === 'geometry_0') {
+                        // morphTargets 활성화
+                        child.material.morphTargets = true;
+                        child.material.morphNormals = true;
+                        
+                        // 모든 shapekey에 대해 값을 설정
+                        if (child.morphTargetInfluences) {
+                            for (let i = 0; i < child.morphTargetInfluences.length; i++) {
+                                child.morphTargetInfluences[i] = value;
+                            }
+                        }
+                        
+                        // 재질과 geometry 업데이트
+                        child.material.needsUpdate = true;
+                        if (child.geometry) {
+                            child.geometry.attributes.position.needsUpdate = true;
+                            child.geometry.attributes.normal.needsUpdate = true;
+                        }
+                    }
+                }
+            });
+        });
+
+        // 자동 회전 로직
         if (this.autoRotate) {
             this.rotationTime += this.rotationSpeed;
             const rotation = Math.sin(this.rotationTime) * this.rotationRange;
@@ -1022,6 +1080,67 @@ class Scene {
                 this.controls.update();
                 this.isPlaying = false;
                 this.playButton.textContent = 'Play';
+            }
+        };
+
+        animate();
+    }
+
+    setupMorphing(sourceMesh, targetMesh) {
+        // 두 메쉬의 정점 수가 같은지 확인
+        if (sourceMesh.geometry.attributes.position.count !== targetMesh.geometry.attributes.position.count) {
+            console.error('메쉬의 정점 수가 일치하지 않습니다.');
+            return;
+        }
+
+        // 소스 메쉬에 MorphTarget 추가
+        sourceMesh.morphTargetDictionary = {};
+        sourceMesh.morphTargetInfluences = [];
+
+        // 타겟 메쉬의 위치를 MorphTarget으로 추가
+        const positions = targetMesh.geometry.attributes.position.array;
+        sourceMesh.morphTargetDictionary['target'] = 0;
+        sourceMesh.morphTargetInfluences[0] = 0;
+
+        // MorphTarget 생성
+        const morphTarget = {
+            name: 'target',
+            vertices: new Float32Array(positions)
+        };
+
+        sourceMesh.geometry.morphTargets = [morphTarget];
+        sourceMesh.material.morphTargets = true;
+
+        // 모핑할 메쉬 저장
+        this.morphingMeshes = [sourceMesh, targetMesh];
+    }
+
+    startMorphing() {
+        if (this.morphingMeshes.length !== 2) return;
+        
+        this.isMorphing = true;
+        this.morphingStartTime = Date.now();
+        this.morphingProgress = 0;
+
+        const animate = () => {
+            if (!this.isMorphing) return;
+
+            const currentTime = Date.now();
+            const elapsedTime = currentTime - this.morphingStartTime;
+            this.morphingProgress = Math.min(elapsedTime / this.morphingDuration, 1);
+
+            // 부드러운 이징 함수 적용
+            const easedProgress = this.morphingProgress < 0.5
+                ? 4 * this.morphingProgress * this.morphingProgress * this.morphingProgress
+                : 1 - Math.pow(-2 * this.morphingProgress + 2, 3) / 2;
+
+            // MorphTarget 영향도 업데이트
+            this.morphingMeshes[0].morphTargetInfluences[0] = easedProgress;
+
+            if (this.morphingProgress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                this.isMorphing = false;
             }
         };
 
