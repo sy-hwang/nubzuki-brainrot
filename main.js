@@ -176,8 +176,8 @@ class Scene {
         const segments   = 8;   // ← 케이지 다각형 면 개수
 
         // 원하는 케이지 중심 좌표
-        const cx = 3.5;    
-        const cz = -1;  
+        const cx = 4.5;    
+        const cz = -0;  
         const logoSize   = radius * 0.8;   // 로고가 차지할 대각 크기
 
 
@@ -185,7 +185,7 @@ class Scene {
         const loader       = new TextureLoader();
         // — 1) 체인링크 알파맵 로드 —
         const fenceAlpha = loader.load(
-            'textures/cage_wall.jpg',
+            'textures/cage_wall_final.jpg',
             );
         fenceAlpha.wrapS = fenceAlpha.wrapT = RepeatWrapping;
         fenceAlpha.repeat.set(segments, 1);
@@ -211,7 +211,7 @@ class Scene {
         );
         // 2) fenceMat 정의 — 알파맵과 alphaTest만으로 컷아웃 처리
         const fenceMat = new THREE.MeshStandardMaterial({
-        color:       0x000000,     // 살아남을 선 색
+        color:       0x111111,     // 살아남을 선 색
         alphaMap:    fenceAlpha,  
         alphaTest:   0.5,          // 50% 미만 픽셀은 투명 컷아웃
         side:        THREE.DoubleSide,
@@ -220,12 +220,12 @@ class Scene {
         });
 
         // 3) 알파맵 반전 (필요하다면)
-        fenceMat.onBeforeCompile = (shader) => {
-        shader.fragmentShader = shader.fragmentShader.replace(
-            'diffuseColor.a *= texture2D( alphaMap, vUv ).r;',
-            'diffuseColor.a *= (1.0 - texture2D( alphaMap, vUv ).r);'
-        );
-        };
+        // fenceMat.onBeforeCompile = (shader) => {
+        // shader.fragmentShader = shader.fragmentShader.replace(
+        //     'diffuseColor.a *= texture2D( alphaMap, vUv ).r;',
+        //     'diffuseColor.a *= (1.0 - texture2D( alphaMap, vUv ).r);'
+        // );
+        // };
         
 
         const fenceMesh = new THREE.Mesh(cageGeo, fenceMat);
