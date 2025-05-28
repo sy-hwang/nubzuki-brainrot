@@ -37,8 +37,8 @@ class Scene {
         this.lastMouseY = 0;
         this.isJumping = false;
         this.jumpStartTime = 0;
-        this.jumpDuration = 1000; // 점프 애니메이션 지속 시간 (ms)
-        this.jumpHeight = 0.2; // 점프 높이를 0.5에서 0.2로 낮춤
+        this.jumpDuration = 800; // 점프 애니메이션 지속 시간 (ms)
+        this.jumpHeight = 0.25; // 점프 높이
         this.originalPositions = new Map(); // 모델의 초기 위치를 저장할 Map
         this.isPlaying = false; // 재생 상태를 추적하는 변수 추가
         this.playButton = null; // play 버튼 참조를 저장할 변수 추가
@@ -57,6 +57,7 @@ class Scene {
         this.textMesh = null;       // 화면에 뿌릴 3D 텍스트 Mesh
         this.fontLoader = new FontLoader();
         this.uiElements = [];
+        this.modelInitialCenters = new Map(); // 모델의 초기 중심점을 저장할 Map 추가
         this.init();
     }
 
@@ -86,7 +87,7 @@ class Scene {
         this.infoDiv.style.color = '#000';
         this.infoDiv.style.fontFamily = 'Arial, sans-serif';
         this.infoDiv.style.fontSize = '14px';
-        this.infoDiv.textContent = 'Click a model';
+        this.infoDiv.textContent = 'debugging';
         this.container.appendChild(this.infoDiv);
 
         // 배경색 설정
@@ -671,7 +672,7 @@ class Scene {
 
         // 모델의 크기에 따라 카메라 거리 계산
         const maxDim = Math.max(size.x, size.y, size.z);
-        const distance = maxDim * 1.5;
+        const distance = maxDim * 1.8;
 
         // 시작 위치와 목표 위치 설정
         this.cameraStartPosition.copy(this.camera.position);
@@ -714,8 +715,22 @@ class Scene {
     }
 
     startJumpAnimation(model) {
+        // 이미 점프 중인 모델이 있다면 중지
+        if (this.isJumping) {
+            this.isJumping = false;
+        }
+
         this.isJumping = true;
         this.jumpStartTime = Date.now();
+
+        // 모델의 초기 위치 저장
+        if (!this.originalPositions.has(model)) {
+            this.originalPositions.set(model, {
+                x: model.position.x,
+                y: model.position.y,
+                z: model.position.z
+            });
+        }
 
         const animateJump = () => {
             if (!this.isJumping) return;
@@ -727,6 +742,8 @@ class Scene {
             // 사인 함수를 사용하여 부드러운 점프 애니메이션 구현
             const jumpProgress = Math.sin(progress * Math.PI);
             const originalY = this.originalPositions.get(model).y;
+            
+            // 일정한 높이로 점프
             model.position.y = originalY + (this.jumpHeight * jumpProgress);
 
             requestAnimationFrame(animateJump);
@@ -815,65 +832,83 @@ class Scene {
         ];
         const names = ['Nubjukchini Bananini', 'Nubchokchoki Jjillillala', 'Juk Juk Juk Juk Juk Juk Juk Juk, Nubzuru', 'Tralululala Nubrulala'];
 
-
-        modelPaths.forEach((path, index) => {
-            loader.load(
-                path,
-                (gltf) => {
-                    const model = gltf.scene;
-
-
-                    model.userData.stats = {
-                        Name:  names[index],
-                        HP:    Math.floor( Math.random() * 200 ) + 50,   // 예시 수치
-                        Attack: Math.floor( Math.random() * 100 ) + 20
+        // Promise를 사용하여 순차적으로 모델 로드
+        const loadModel = (path, index) => {
+            return new Promise((resolve, reject) => {
+                loader.load(
+                    path,
+                    (gltf) => {
+                        const model = gltf.scene;
+                        model.userData.stats = {
+                            Name: names[index],
+                            HP: Math.floor(Math.random() * 200) + 50,
+                            Attack: Math.floor(Math.random() * 100) + 20
                         };
-                    model.userData.label = names[index];  // 클릭 시 표시할 텍스트
-                    // 모델 위치 조정 (간격을 3으로 조정)
-
-                    model.position.set(index * 3, 0, 0);
-                    
-                    this.modelInitialRotations.set(model, {
-                        x: model.rotation.x,
-                        y: model.rotation.y,
-                        z: model.rotation.z
-                    });
-                    
-                    model.traverse((child) => {
-                        if (child.isMesh) {
-                            if (child.material) {
-                                child.material.needsUpdate = true;
-                                child.material.metalness = 0.5;
-                                child.material.roughness = 0.5;
-                                child.material.envMapIntensity = 1.0;
-                                
-                                if (path === 'models/sahur_shapekey.glb' && child.morphTargetDictionary) {
-                                    child.material.morphTargets = true;
-                                    child.material.morphNormals = true;
-                                    
-                                    if (child.morphTargetInfluences) {
-                                        for (let i = 0; i < child.morphTargetInfluences.length; i++) {
-                                            child.morphTargetInfluences[i] = 0;
-                                        }
-                                    }
-                                    
+                        model.userData.label = names[index];
+                        model.position.set(index * 3, 0, 0);
+                        
+                        this.modelInitialRotations.set(model, {
+                            x: model.rotation.x,
+                            y: model.rotation.y,
+                            z: model.rotation.z
+                        });
+                        
+                        // 모델의 초기 중심점 저장
+                        const box = new THREE.Box3().setFromObject(model);
+                        const center = box.getCenter(new THREE.Vector3());
+                        this.modelInitialCenters.set(model, center.clone());
+                        
+                        model.traverse((child) => {
+                            if (child.isMesh) {
+                                if (child.material) {
                                     child.material.needsUpdate = true;
+                                    child.material.metalness = 0.5;
+                                    child.material.roughness = 0.5;
+                                    child.material.envMapIntensity = 1.0;
+                                    
+                                    if (path === 'models/sahur_shapekey.glb' && child.morphTargetDictionary) {
+                                        child.material.morphTargets = true;
+                                        child.material.morphNormals = true;
+                                        
+                                        if (child.morphTargetInfluences) {
+                                            for (let i = 0; i < child.morphTargetInfluences.length; i++) {
+                                                child.morphTargetInfluences[i] = 0;
+                                            }
+                                        }
+                                        
+                                        child.material.needsUpdate = true;
+                                    }
                                 }
                             }
-                        }
-                    });
-                    
-                    this.scene.add(model);
-                    this.models.push(model);
-                },
-                (xhr) => {
-                    console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-                },
-                (error) => {
-                    console.error('An error happened', error);
+                        });
+                        
+                        this.scene.add(model);
+                        this.models.push(model);
+                        resolve();
+                    },
+                    (xhr) => {
+                        console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                    },
+                    (error) => {
+                        console.error('An error happened', error);
+                        reject(error);
+                    }
+                );
+            });
+        };
+
+        // 순차적으로 모델 로드
+        const loadModelsSequentially = async () => {
+            for (let i = 0; i < modelPaths.length; i++) {
+                try {
+                    await loadModel(modelPaths[i], i);
+                } catch (error) {
+                    console.error(`Error loading model ${i}:`, error);
                 }
-            );
-        });
+            }
+        };
+
+        loadModelsSequentially();
     }
 
     onWindowResize() {
@@ -1002,13 +1037,6 @@ class Scene {
         // 카메라가 따라갈 모델 순서: sahur, tra, banini, lirili
         // models의 인덱스: banini(0), lirili(1), sahur(2), tra(3)
         const cameraModelOrder = [2, 3, 0, 1];
-        // 각 모델별 카메라 위치 변화를 위한 배열 (순서 맞춰서)
-        const cameraPositions = [
-            { x: 0.0, y: 0.1, z: 1.5 },  // sahur
-            { x: 0.3, y: 0.2, z: 1.0 },  // tra
-            { x: 0.0, y: 0.2, z: 1.5 },  // banini
-            { x: -0.4, y: 0.3, z: 1.3 }  // lirili
-        ];
 
         const animate = () => {
             if (!this.isPlaying) {
@@ -1038,64 +1066,74 @@ class Scene {
                         const modelProgress = (remainingTime % modelDuration) / moveDuration;
                         const modelIdx = cameraModelOrder[currentModelIndex];
                         if (modelProgress < 1) {
+                            // 더 부드러운 이징 함수 적용
                             const easedProgress = modelProgress < 0.5
-                                ? 4 * modelProgress * modelProgress * modelProgress
-                                : 1 - Math.pow(-2 * modelProgress + 2, 3) / 2;
+                                ? 2 * modelProgress * modelProgress
+                                : -1 + (4 - 2 * modelProgress) * modelProgress;
                             const model = this.models[modelIdx];
                             const box = new THREE.Box3().setFromObject(model);
-                            const modelCenter = box.getCenter(new THREE.Vector3());
+                            const initialCenter = this.modelInitialCenters.get(model);
                             const size = box.getSize(new THREE.Vector3());
                             const maxDim = Math.max(size.x, size.y, size.z);
+                            const distance = maxDim * 1.8;
+                            
                             let prevPosition;
                             if (currentModelIndex === 0) {
-                                const rotationEndAngle = startAngle + Math.PI * 2;
                                 prevPosition = new THREE.Vector3(
-                                    center.x + Math.cos(rotationEndAngle) * radius,
-                                    startPosition.y,
-                                    center.z + Math.sin(rotationEndAngle) * radius
+                                    initialCenter.x,
+                                    initialCenter.y + this.jumpHeight,
+                                    initialCenter.z + distance * 2
                                 );
                             } else {
                                 const prevModelIdx = cameraModelOrder[currentModelIndex - 1];
                                 const prevModel = this.models[prevModelIdx];
                                 const prevBox = new THREE.Box3().setFromObject(prevModel);
-                                const prevCenter = prevBox.getCenter(new THREE.Vector3());
-                                const prevPos = cameraPositions[currentModelIndex - 1];
+                                const prevInitialCenter = this.modelInitialCenters.get(prevModel);
+                                const prevSize = prevBox.getSize(new THREE.Vector3());
+                                const prevMaxDim = Math.max(prevSize.x, prevSize.y, prevSize.z);
+                                const prevDistance = prevMaxDim * 1.8;
+                                
                                 prevPosition = new THREE.Vector3(
-                                    prevCenter.x + prevPos.x,
-                                    prevCenter.y + prevPos.y,
-                                    prevCenter.z + prevPos.z
+                                    prevInitialCenter.x,
+                                    prevInitialCenter.y + this.jumpHeight,
+                                    prevInitialCenter.z + prevDistance
                                 );
                             }
-                            const targetPos = cameraPositions[currentModelIndex];
+                            
                             const targetPosition = new THREE.Vector3(
-                                modelCenter.x + targetPos.x,
-                                modelCenter.y + targetPos.y,
-                                modelCenter.z + targetPos.z
+                                initialCenter.x,
+                                initialCenter.y + this.jumpHeight,
+                                initialCenter.z + distance
                             );
+                            
                             currentPosition = new THREE.Vector3().lerpVectors(
                                 prevPosition,
                                 targetPosition,
                                 easedProgress
                             );
                             currentTarget = new THREE.Vector3().lerpVectors(
-                                currentModelIndex === 0 ? center : this.models[cameraModelOrder[currentModelIndex - 1]].position,
-                                modelCenter,
+                                currentModelIndex === 0 ? center : this.modelInitialCenters.get(this.models[cameraModelOrder[currentModelIndex - 1]]),
+                                initialCenter,
                                 easedProgress
                             );
                         } else {
                             const model = this.models[modelIdx];
                             const box = new THREE.Box3().setFromObject(model);
-                            const modelCenter = box.getCenter(new THREE.Vector3());
-                            const targetPos = cameraPositions[currentModelIndex];
+                            const initialCenter = this.modelInitialCenters.get(model);
+                            const size = box.getSize(new THREE.Vector3());
+                            const maxDim = Math.max(size.x, size.y, size.z);
+                            const distance = maxDim * 1.8;
+                            
                             currentPosition = new THREE.Vector3(
-                                modelCenter.x + targetPos.x,
-                                modelCenter.y + targetPos.y,
-                                modelCenter.z + targetPos.z
+                                initialCenter.x,
+                                initialCenter.y + this.jumpHeight,
+                                initialCenter.z + distance
                             );
-                            currentTarget = modelCenter.clone();
+                            currentTarget = initialCenter.clone();
                         }
                         if (currentModelIndex !== lastModelIndex) {
                             this.showStats(this.models[modelIdx]);
+                            this.startJumpAnimation(this.models[modelIdx]);
                             lastModelIndex = currentModelIndex;
                         }
                     } else {
@@ -1104,27 +1142,34 @@ class Scene {
                             this.scene.remove(this.infoPanel);
                             this.infoPanel = null;
                         }
+                        if (this.isJumping) {
+                            this.isJumping = false;
+                        }
                         const zoomOutProgress = (elapsedTime - (rotationDuration + modelDuration * cameraModelOrder.length)) / zoomOutDuration;
                         const easedProgress = zoomOutProgress < 0.5
-                            ? 4 * zoomOutProgress * zoomOutProgress * zoomOutProgress
-                            : 1 - Math.pow(-2 * zoomOutProgress + 2, 3) / 2;
+                            ? 2 * zoomOutProgress * zoomOutProgress
+                            : -1 + (4 - 2 * zoomOutProgress) * zoomOutProgress;
                         const lastModelIdx = cameraModelOrder[cameraModelOrder.length - 1];
                         const lastModel = this.models[lastModelIdx];
-                        const box = new THREE.Box3().setFromObject(lastModel);
-                        const modelCenter = box.getCenter(new THREE.Vector3());
-                        const lastPos = cameraPositions[cameraModelOrder.length - 1];
+                        const lastBox = new THREE.Box3().setFromObject(lastModel);
+                        const lastInitialCenter = this.modelInitialCenters.get(lastModel);
+                        const size = lastBox.getSize(new THREE.Vector3());
+                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const distance = maxDim * 1.8;
+                        
                         const lastPosition = new THREE.Vector3(
-                            modelCenter.x + lastPos.x,
-                            modelCenter.y + lastPos.y,
-                            modelCenter.z + lastPos.z
+                            lastInitialCenter.x,
+                            lastInitialCenter.y + this.jumpHeight,
+                            lastInitialCenter.z + distance
                         );
+                        
                         currentPosition = new THREE.Vector3().lerpVectors(
                             lastPosition,
                             startPosition,
                             easedProgress
                         );
                         currentTarget = new THREE.Vector3().lerpVectors(
-                            modelCenter,
+                            lastInitialCenter,
                             startTarget,
                             easedProgress
                         );
