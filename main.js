@@ -199,7 +199,7 @@ class Scene {
             logoTex.magFilter = THREE.NearestFilter;
 
             // 🔥 애니소트로피 설정
-            logoTex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+            logoTex.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
 
             logoTex.needsUpdate = true;
         });
@@ -542,7 +542,7 @@ class Scene {
 
         if (intersects.length > 0) {
             const clicked = this.findParentModel(intersects[0].object);
-            if (clicked && this.selectedModel !== clicked) {
+            if (clicked) {
                 this.moveCameraToModel(clicked);
                 this.showStats(clicked);
             }
@@ -551,7 +551,8 @@ class Scene {
                 this.scene.remove(this.infoPanel);
                 this.infoPanel = null;
             }
-            if (this.selectedModel) this.returnCameraToOriginalPosition();
+            // 빈 공간 클릭 시 항상 카메라 원위치로 이동
+            this.returnCameraToOriginalPosition();
         }
     }
     
@@ -840,11 +841,18 @@ class Scene {
             }
         });
 
-        // 모델 선택 해제
-        this.selectedModel = null;
-
-        // 컨트롤 다시 활성화
-        this.controls.enabled = true;
+        // 카메라 이동이 완료된 후에 모델 선택 해제
+        const checkCameraMovement = () => {
+            if (this.isCameraMoving) {
+                requestAnimationFrame(checkCameraMovement);
+            } else {
+                // 카메라 이동이 완료된 후에 모델 선택 해제
+                this.selectedModel = null;
+                // 컨트롤 다시 활성화
+                this.controls.enabled = true;
+            }
+        };
+        checkCameraMovement();
     }
 
     loadModels() {
