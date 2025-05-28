@@ -58,6 +58,8 @@ class Scene {
         this.fontLoader = new FontLoader();
         this.uiElements = [];
         this.modelInitialCenters = new Map(); // 모델의 초기 중심점을 저장할 Map 추가
+        this.isPhotoMode = false;  // 포토 모드 상태 추가
+        this.isShiftPressed = false;  // Shift 키 상태 추가
         this.init();
     }
 
@@ -70,26 +72,6 @@ class Scene {
         this.renderer.toneMappingExposure = 1.5;
         this.container.appendChild(this.renderer.domElement);
         
-        // text
-        this.infoDiv = document.createElement('div');
-        this.container.style.position = 'relative';
-
-        // infoDiv 스타일
-        this.infoDiv = document.createElement('div');
-        this.infoDiv.style.position        = 'absolute';
-        this.infoDiv.style.top             = '20px';
-        this.infoDiv.style.left            = '20px';
-        this.infoDiv.style.zIndex          = '1000';
-        this.infoDiv.style.pointerEvents   = 'none';
-
-        this.infoDiv.style.padding = '8px 12px';
-        this.infoDiv.style.background = 'rgba(255,255,255,0.8)';
-        this.infoDiv.style.color = '#000';
-        this.infoDiv.style.fontFamily = 'Arial, sans-serif';
-        this.infoDiv.style.fontSize = '14px';
-        this.infoDiv.textContent = 'debugging..';
-        this.container.appendChild(this.infoDiv);
-
         // 배경색 설정
         this.scene.background = new THREE.Color(0xE0FFFF);
 
@@ -144,14 +126,14 @@ class Scene {
                 pmremGenerator.dispose();
             });
 
-        // Wireframe Toggle 버튼 추가
-        this.createWireframeButton();
-
         // Play 버튼 추가
         this.createPlayButton();
 
         // Auto Rotate 버튼 추가
         this.createAutoRotateButton();
+
+        // Edit Mode 버튼 추가
+        this.createEditModeButton();
 
         // 윈도우 리사이즈 이벤트 처리
         window.addEventListener('resize', () => this.onWindowResize());
@@ -175,13 +157,14 @@ class Scene {
         // 애니메이션 시작
         this.animate();
 
-        // 버튼/안내 텍스트 일괄 제어를 위한 참조 저장
+        // 버튼 일괄 제어를 위한 참조 저장
         this.uiElements = [
-            ...this.container.querySelectorAll('button'),
-            this.infoDiv
+            ...this.container.querySelectorAll('button')
         ];
-        // 안내 텍스트 원본 저장
-        this.infoDivOriginalText = this.infoDiv.textContent;
+
+        // 키보드 이벤트 리스너 추가
+        window.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        window.addEventListener('keyup', (e) => this.handleKeyUp(e));
     }
 
     // 아레나 생성 함수
@@ -310,72 +293,6 @@ class Scene {
         this.scene.add(logoMesh);
         }
 
-    createWireframeButton() {
-        const button = document.createElement('button');
-        button.textContent = 'Wireframe Toggle';
-        button.style.position = 'absolute';
-        button.style.bottom = '80px';
-        button.style.left = '20px';
-        button.style.padding = '10px 20px';
-        button.style.backgroundColor = '#ffffff';
-        button.style.border = '1px solid #cccccc';
-        button.style.borderRadius = '5px';
-        button.style.cursor = 'pointer';
-        button.style.zIndex = '1000';
-
-        button.addEventListener('click', (event) => {
-            event.stopPropagation(); // 버튼 클릭 시 씬 클릭 이벤트 방지
-            this.isWireframe = !this.isWireframe;
-            this.models.forEach(model => {
-                model.traverse((child) => {
-                    if (child.isMesh) {
-                        child.material.wireframe = this.isWireframe;
-                        if (this.isWireframe) {
-                            // wireframe 모드일 때 정점 표시
-                            const geometry = child.geometry;
-                            const positions = geometry.attributes.position;
-                            
-                            // 기존 포인트 제거
-                            child.children.forEach(point => {
-                                if (point.isPoints) {
-                                    child.remove(point);
-                                }
-                            });
-
-                            // 새로운 포인트 생성
-                            const pointGeometry = new THREE.BufferGeometry();
-                            pointGeometry.setAttribute('position', positions);
-                            
-                            const pointMaterial = new THREE.PointsMaterial({
-                                color: 0x000000,
-                                size: 0.01,  // 크기를 0.15에서 0.05로 줄임
-                                sizeAttenuation: true
-                            });
-                            
-                            const points = new THREE.Points(pointGeometry, pointMaterial);
-                            child.add(points);
-
-                            // wireframe 선의 두께 조정
-                            child.material.wireframeLinewidth = 1;
-                        } else {
-                            // wireframe 모드가 아닐 때 포인트 제거
-                            child.children.forEach(point => {
-                                if (point.isPoints) {
-                                    child.remove(point);
-                                }
-                            });
-                        }
-                    }
-                });
-            });
-        });
-
-        this.container.appendChild(button);
-        // 버튼 참조 저장
-        if (!this.uiElements) this.uiElements = [];
-        this.uiElements.push(button);
-    }
-
     createPlayButton() {
         this.playButton = document.createElement('button');
         this.playButton.textContent = 'Play';
@@ -425,6 +342,29 @@ class Scene {
         this.uiElements.push(button);
     }
 
+    createEditModeButton() {
+        const button = document.createElement('button');
+        button.textContent = 'Edit Mode';
+        button.style.position = 'absolute';
+        button.style.bottom = '200px'; // Auto Rotate 버튼 위에 배치
+        button.style.left = '20px';
+        button.style.padding = '10px 20px';
+        button.style.backgroundColor = '#ffffff';
+        button.style.border = '1px solid #cccccc';
+        button.style.borderRadius = '5px';
+        button.style.cursor = 'pointer';
+        button.style.zIndex = '1000';
+
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.togglePhotoMode();
+        });
+
+        this.container.appendChild(button);
+        if (!this.uiElements) this.uiElements = [];
+        this.uiElements.push(button);
+    }
+
     createDragBoxDiv() {
         this.dragBoxDiv = document.createElement('div');
         this.dragBoxDiv.style.position = 'fixed';
@@ -437,54 +377,89 @@ class Scene {
     }
 
     handleDragStart(event) {
-        // 모델이 선택된 상태에서만 드래그 시작
-        if (!this.selectedModel) return;
         // 마우스 왼쪽 버튼만
         if (event.button !== 0) return;
         
-        // 버튼 위에서 드래그 시작한 경우 드래그 영역을 시각화하지 않음
         const target = event.target;
         if (target.tagName === 'BUTTON' || target.closest('button') || 
             target === this.rotateButton || target.closest('div[style*="position: absolute"]')) {
             return;
         }
+
+        // 모델 선택 확인
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.models, true);
         
-        this.dragging = true;
-        this.dragStart2D = { x: event.clientX, y: event.clientY };
-        this.dragEnd2D = { x: event.clientX, y: event.clientY };
-        
-        // 드래그 시작 시 현재 마우스 위치 저장
-        this.lastMouseX = event.clientX;
-        this.lastMouseY = event.clientY;
-        
-        if (this.showDragBox) {
-            this.updateDragBoxDiv();
-            this.dragBoxDiv.style.display = 'block';
+        if (intersects.length > 0) {
+            // 모델을 클릭한 경우
+            if (!this.selectedModel) {
+                this.selectedModel = this.findParentModel(intersects[0].object);
+            }
+            this.dragging = true;
+            this.dragStart2D = { x: event.clientX, y: event.clientY };
+            this.dragEnd2D = { x: event.clientX, y: event.clientY };
+            this.lastMouseX = event.clientX;
+            this.lastMouseY = event.clientY;
+            
+            // 모델 컨트롤 시작 시 카메라 컨트롤 비활성화
+            this.controls.enabled = false;
+            
+            if (this.showDragBox) {
+                this.updateDragBoxDiv();
+                this.dragBoxDiv.style.display = 'block';
+            }
+        } else {
+            // 빈 영역을 클릭한 경우
+            if (this.isPhotoMode && !this.isShiftPressed && !this.dragging) {
+                // 포토 모드에서 shift 키를 누르지 않은 상태이고, 모델을 드래그 중이 아닐 때만 카메라 조작 활성화
+                this.controls.enabled = true;
+                this.controls.onMouseDown(event);
+            }
         }
     }
 
     handleDragMove(event) {
+        // shift 키를 누른 상태에서는 카메라 조작 비활성화
+        if (this.isShiftPressed) {
+            this.controls.enabled = false;
+        }
+
+        if (!this.dragging && !this.selectedModel) {
+            // 드래그 중이 아니고 모델도 선택되지 않은 상태에서
+            if (this.isPhotoMode && !this.isShiftPressed) {
+                // 포토 모드에서 shift 키를 누르지 않은 상태에서만 카메라 조작
+                this.controls.enabled = true;
+                this.controls.onMouseMove(event);
+            }
+            return;
+        }
+
         if (!this.dragging || !this.selectedModel) return;
         
-        // 현재 마우스 위치
+        // 모델 컨트롤 중에는 카메라 컨트롤 비활성화
+        this.controls.enabled = false;
+        
         const currentX = event.clientX;
         const currentY = event.clientY;
         
-        // 마우스 이동량 계산
         const deltaX = currentX - this.lastMouseX;
         const deltaY = currentY - this.lastMouseY;
         
-        // 회전 속도 조절 (값이 클수록 더 빠르게 회전)
-        const rotationSpeed = 0.005;
+        if (this.isPhotoMode && this.isShiftPressed) {
+            // 포토 모드에서 Shift + 드래그로 모델 이동 (x축과 z축만)
+            const moveSpeed = 0.05;
+            this.selectedModel.position.x += deltaX * moveSpeed;
+            this.selectedModel.position.z += deltaY * moveSpeed; // y 대신 z축으로 변경
+        } else {
+            // 일반 회전 모드
+            const rotationSpeed = 0.005;
+            this.selectedModel.rotation.y += deltaX * rotationSpeed;
+            this.selectedModel.rotation.x += deltaY * rotationSpeed;
+            this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
+        }
         
-        // Y축 회전 (좌우)
-        this.selectedModel.rotation.y += deltaX * rotationSpeed;
-        
-        // X축 회전 (상하) - 제한된 범위 내에서만 회전
-        this.selectedModel.rotation.x += deltaY * rotationSpeed;
-        this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
-        
-        // 다음 프레임을 위한 마우스 위치 업데이트
         this.lastMouseX = currentX;
         this.lastMouseY = currentY;
         
@@ -494,7 +469,17 @@ class Scene {
     }
 
     handleDragEnd(event) {
-        if (!this.dragging) return;
+        if (!this.dragging) {
+            if (this.isPhotoMode && !this.isShiftPressed) {
+                // 포토 모드에서 shift 키를 누르지 않은 상태에서만 카메라 조작 종료
+                this.controls.onMouseUp(event);
+                // 모델 컨트롤이 끝난 후에만 카메라 컨트롤 활성화
+                if (!this.selectedModel) {
+                    this.controls.enabled = true;
+                }
+            }
+            return;
+        }
         this.dragging = false;
         if (this.showDragBox) {
             this.dragBoxDiv.style.display = 'none';
@@ -525,32 +510,50 @@ class Scene {
             this.returnCameraToOriginalPosition();
             return;
         }
-        // 마우스 위치를 정규화된 장치 좌표로 변환
+
+        // 포토 모드에서는 카메라 이동 없이 모델 선택만
+        if (this.isPhotoMode) {
+            this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            const intersects = this.raycaster.intersectObjects(this.models, true);
+            
+            if (intersects.length > 0) {
+                const clicked = this.findParentModel(intersects[0].object);
+                if (clicked && this.selectedModel !== clicked) {
+                    this.selectedModel = clicked;
+                    this.showStats(clicked);
+                }
+            } else {
+                if (this.infoPanel) {
+                    this.scene.remove(this.infoPanel);
+                    this.infoPanel = null;
+                }
+                this.selectedModel = null;
+            }
+            return;
+        }
+
+        // 일반 모드에서는 기존 동작 유지
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-        // Raycaster 업데이트
         this.raycaster.setFromCamera(this.mouse, this.camera);
-
-        // 모델과의 교차 확인
         const intersects = this.raycaster.intersectObjects(this.models, true);
 
-        // 모델 클릭 시
         if (intersects.length > 0) {
             const clicked = this.findParentModel(intersects[0].object);
             if (clicked && this.selectedModel !== clicked) {
                 this.moveCameraToModel(clicked);
                 this.showStats(clicked);
             }
-            } else {
-            // 빈 공간 클릭 시
+        } else {
             if (this.infoPanel) {
                 this.scene.remove(this.infoPanel);
                 this.infoPanel = null;
             }
             if (this.selectedModel) this.returnCameraToOriginalPosition();
-            }
         }
+    }
     
     showStats(model) {
         // 이전 패널 제거
@@ -1280,14 +1283,85 @@ class Scene {
         this.uiElements.forEach(el => {
             if (el && el.tagName === 'BUTTON') el.style.display = 'none';
         });
-        if (this.infoDiv) this.infoDiv.style.display = 'none';
     }
     showUI() {
         if (!this.uiElements) return;
         this.uiElements.forEach(el => {
             if (el && el.tagName === 'BUTTON') el.style.display = 'block';
         });
-        if (this.infoDiv) this.infoDiv.style.display = 'block';
+    }
+
+    togglePhotoMode() {
+        this.isPhotoMode = !this.isPhotoMode;
+        
+        if (this.isPhotoMode) {
+            // 포토 모드 진입
+            this.models.forEach(model => {
+                // 모델의 바운딩 박스 계산
+                const box = new THREE.Box3().setFromObject(model);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+                
+                // 모델의 초기 위치 저장
+                if (!this.originalPositions.has(model)) {
+                    this.originalPositions.set(model, {
+                        x: model.position.x,
+                        y: model.position.y,
+                        z: model.position.z,
+                        scale: model.scale.clone()
+                    });
+                }
+                
+                // 바닥면을 기준으로 스케일 조정
+                const scale = 3;
+                const bottomY = model.position.y - (size.y / 2);
+                const scaleRatio = scale / model.scale.x;
+                
+                // 스케일 적용
+                model.scale.set(scale, scale, scale);
+                
+                // 바닥면 위치 유지를 위한 위치 조정
+                model.position.y = bottomY + (size.y * scale / 2);
+            });
+            
+            // 컨트롤 비활성화
+            this.controls.enabled = false;
+        } else {
+            // 포토 모드 종료
+            this.models.forEach(model => {
+                // 원래 스케일과 위치로 복원
+                const originalPosition = this.originalPositions.get(model);
+                if (originalPosition) {
+                    model.scale.copy(originalPosition.scale);
+                    model.position.set(
+                        originalPosition.x,
+                        originalPosition.y,
+                        originalPosition.z
+                    );
+                }
+            });
+            
+            // 컨트롤 다시 활성화
+            this.controls.enabled = true;
+        }
+    }
+
+    handleKeyDown(event) {
+        if (event.key === 'Shift') {
+            this.isShiftPressed = true;
+            // shift 키를 누르면 카메라 컨트롤 비활성화
+            this.controls.enabled = false;
+        }
+    }
+
+    handleKeyUp(event) {
+        if (event.key === 'Shift') {
+            this.isShiftPressed = false;
+            // shift 키를 떼면 카메라 컨트롤 다시 활성화 (포토 모드이고 드래그 중이 아닐 때만)
+            if (this.isPhotoMode && !this.dragging) {
+                this.controls.enabled = true;
+            }
+        }
     }
 }
 
