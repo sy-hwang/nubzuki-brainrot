@@ -213,7 +213,7 @@ class Scene {
         );
         // 2) fenceMat 정의 — 알파맵과 alphaTest만으로 컷아웃 처리
         const fenceMat = new THREE.MeshStandardMaterial({
-        color:       0x000000,     // 살아남을 선 색
+        color:       0xffffff,     // 살아남을 선 색
         alphaMap:    fenceAlpha,  
         alphaTest:   0.5,          // 50% 미만 픽셀은 투명 컷아웃
         side:        THREE.DoubleSide,
