@@ -37,8 +37,8 @@ class Scene {
         this.lastMouseY = 0;
         this.isJumping = false;
         this.jumpStartTime = 0;
-        this.jumpDuration = 1000; // 점프 애니메이션 지속 시간 (ms)
-        this.jumpHeight = 0.2; // 점프 높이를 0.5에서 0.2로 낮춤
+        this.jumpDuration = 800; // 점프 애니메이션 지속 시간 (ms)
+        this.jumpHeight = 0.25; // 점프 높이
         this.originalPositions = new Map(); // 모델의 초기 위치를 저장할 Map
         this.isPlaying = false; // 재생 상태를 추적하는 변수 추가
         this.playButton = null; // play 버튼 참조를 저장할 변수 추가
@@ -46,10 +46,20 @@ class Scene {
         this.rotationSpeed = 0.01; // 회전 속도 5배 증가
         this.rotationTime = 0; // 회전 시간 추적
         this.rotationRange = Math.PI / 4; // 45도 (라디안)
+        this.morphingMeshes = [];
+        this.morphingProgress = 0;
+        this.isMorphing = false;
+        this.morphingDuration = 2000; // 2초 동안 모핑
+        this.morphingStartTime = 0;
+        this.shapekeyAnimationTime = 0; // shapekey 애니메이션을 위한 시간 변수 추가
+        this.shapekeySpeed = 0.1; // 더 빠른 속도로 조정
         this.font = null;
         this.textMesh = null;       // 화면에 뿌릴 3D 텍스트 Mesh
         this.fontLoader = new FontLoader();
-
+        this.uiElements = [];
+        this.modelInitialCenters = new Map(); // 모델의 초기 중심점을 저장할 Map 추가
+        this.isPhotoMode = false;  // 포토 모드 상태 추가
+        this.isShiftPressed = false;  // Shift 키 상태 추가
         this.init();
     }
 
@@ -62,26 +72,6 @@ class Scene {
         this.renderer.toneMappingExposure = 1.5;
         this.container.appendChild(this.renderer.domElement);
         
-        // text
-        this.infoDiv = document.createElement('div');
-        this.container.style.position = 'relative';
-
-        // infoDiv 스타일
-        this.infoDiv = document.createElement('div');
-        this.infoDiv.style.position        = 'absolute';
-        this.infoDiv.style.top             = '20px';
-        this.infoDiv.style.left            = '20px';
-        this.infoDiv.style.zIndex          = '1000';
-        this.infoDiv.style.pointerEvents   = 'none';
-
-        this.infoDiv.style.padding = '8px 12px';
-        this.infoDiv.style.background = 'rgba(255,255,255,0.8)';
-        this.infoDiv.style.color = '#000';
-        this.infoDiv.style.fontFamily = 'Arial, sans-serif';
-        this.infoDiv.style.fontSize = '14px';
-        this.infoDiv.textContent = 'Click a model';
-        this.container.appendChild(this.infoDiv);
-
         // 배경색 설정
         this.scene.background = new THREE.Color(0xE0FFFF);
 
@@ -119,7 +109,6 @@ class Scene {
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.05;
         this.controls.target.copy(this.originalControlsTarget);
-        this.controls.maxDistance = 6;
 
         // Environment Map
         const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
@@ -137,14 +126,14 @@ class Scene {
                 pmremGenerator.dispose();
             });
 
-        // Wireframe Toggle 버튼 추가
-        this.createWireframeButton();
-
         // Play 버튼 추가
         this.createPlayButton();
 
         // Auto Rotate 버튼 추가
         this.createAutoRotateButton();
+
+        // Edit Mode 버튼 추가
+        this.createEditModeButton();
 
         // 윈도우 리사이즈 이벤트 처리
         window.addEventListener('resize', () => this.onWindowResize());
@@ -167,6 +156,15 @@ class Scene {
 
         // 애니메이션 시작
         this.animate();
+
+        // 버튼 일괄 제어를 위한 참조 저장
+        this.uiElements = [
+            ...this.container.querySelectorAll('button')
+        ];
+
+        // 키보드 이벤트 리스너 추가
+        window.addEventListener('keydown', (e) => this.handleKeyDown(e));
+        window.addEventListener('keyup', (e) => this.handleKeyUp(e));
     }
 
     // 아레나 생성 함수
@@ -213,7 +211,7 @@ class Scene {
         );
         // 2) fenceMat 정의 — 알파맵과 alphaTest만으로 컷아웃 처리
         const fenceMat = new THREE.MeshStandardMaterial({
-        color:       0xffffff,     // 살아남을 선 색
+        color:       0x000000,     // 살아남을 선 색
         alphaMap:    fenceAlpha,  
         alphaTest:   0.5,          // 50% 미만 픽셀은 투명 컷아웃
         side:        THREE.DoubleSide,
@@ -295,69 +293,6 @@ class Scene {
         this.scene.add(logoMesh);
         }
 
-    createWireframeButton() {
-        const button = document.createElement('button');
-        button.textContent = 'Wireframe Toggle';
-        button.style.position = 'absolute';
-        button.style.bottom = '80px';
-        button.style.left = '20px';
-        button.style.padding = '10px 20px';
-        button.style.backgroundColor = '#ffffff';
-        button.style.border = '1px solid #cccccc';
-        button.style.borderRadius = '5px';
-        button.style.cursor = 'pointer';
-        button.style.zIndex = '1000';
-
-        button.addEventListener('click', (event) => {
-            event.stopPropagation(); // 버튼 클릭 시 씬 클릭 이벤트 방지
-            this.isWireframe = !this.isWireframe;
-            this.models.forEach(model => {
-                model.traverse((child) => {
-                    if (child.isMesh) {
-                        child.material.wireframe = this.isWireframe;
-                        if (this.isWireframe) {
-                            // wireframe 모드일 때 정점 표시
-                            const geometry = child.geometry;
-                            const positions = geometry.attributes.position;
-                            
-                            // 기존 포인트 제거
-                            child.children.forEach(point => {
-                                if (point.isPoints) {
-                                    child.remove(point);
-                                }
-                            });
-
-                            // 새로운 포인트 생성
-                            const pointGeometry = new THREE.BufferGeometry();
-                            pointGeometry.setAttribute('position', positions);
-                            
-                            const pointMaterial = new THREE.PointsMaterial({
-                                color: 0x000000,
-                                size: 0.01,  // 크기를 0.15에서 0.05로 줄임
-                                sizeAttenuation: true
-                            });
-                            
-                            const points = new THREE.Points(pointGeometry, pointMaterial);
-                            child.add(points);
-
-                            // wireframe 선의 두께 조정
-                            child.material.wireframeLinewidth = 1;
-                        } else {
-                            // wireframe 모드가 아닐 때 포인트 제거
-                            child.children.forEach(point => {
-                                if (point.isPoints) {
-                                    child.remove(point);
-                                }
-                            });
-                        }
-                    }
-                });
-            });
-        });
-
-        this.container.appendChild(button);
-    }
-
     createPlayButton() {
         this.playButton = document.createElement('button');
         this.playButton.textContent = 'Play';
@@ -377,6 +312,9 @@ class Scene {
         });
 
         this.container.appendChild(this.playButton);
+        // 버튼 참조 저장
+        if (!this.uiElements) this.uiElements = [];
+        this.uiElements.push(this.playButton);
     }
 
     createAutoRotateButton() {
@@ -399,6 +337,32 @@ class Scene {
         });
 
         this.container.appendChild(button);
+        // 버튼 참조 저장
+        if (!this.uiElements) this.uiElements = [];
+        this.uiElements.push(button);
+    }
+
+    createEditModeButton() {
+        const button = document.createElement('button');
+        button.textContent = 'Edit Mode';
+        button.style.position = 'absolute';
+        button.style.bottom = '200px'; // Auto Rotate 버튼 위에 배치
+        button.style.left = '20px';
+        button.style.padding = '10px 20px';
+        button.style.backgroundColor = '#ffffff';
+        button.style.border = '1px solid #cccccc';
+        button.style.borderRadius = '5px';
+        button.style.cursor = 'pointer';
+        button.style.zIndex = '1000';
+
+        button.addEventListener('click', (event) => {
+            event.stopPropagation();
+            this.togglePhotoMode();
+        });
+
+        this.container.appendChild(button);
+        if (!this.uiElements) this.uiElements = [];
+        this.uiElements.push(button);
     }
 
     createDragBoxDiv() {
@@ -413,54 +377,89 @@ class Scene {
     }
 
     handleDragStart(event) {
-        // 모델이 선택된 상태에서만 드래그 시작
-        if (!this.selectedModel) return;
         // 마우스 왼쪽 버튼만
         if (event.button !== 0) return;
         
-        // 버튼 위에서 드래그 시작한 경우 드래그 영역을 시각화하지 않음
         const target = event.target;
         if (target.tagName === 'BUTTON' || target.closest('button') || 
             target === this.rotateButton || target.closest('div[style*="position: absolute"]')) {
             return;
         }
+
+        // 모델 선택 확인
+        this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+        this.raycaster.setFromCamera(this.mouse, this.camera);
+        const intersects = this.raycaster.intersectObjects(this.models, true);
         
-        this.dragging = true;
-        this.dragStart2D = { x: event.clientX, y: event.clientY };
-        this.dragEnd2D = { x: event.clientX, y: event.clientY };
-        
-        // 드래그 시작 시 현재 마우스 위치 저장
-        this.lastMouseX = event.clientX;
-        this.lastMouseY = event.clientY;
-        
-        if (this.showDragBox) {
-            this.updateDragBoxDiv();
-            this.dragBoxDiv.style.display = 'block';
+        if (intersects.length > 0) {
+            // 모델을 클릭한 경우
+            if (!this.selectedModel) {
+                this.selectedModel = this.findParentModel(intersects[0].object);
+            }
+            this.dragging = true;
+            this.dragStart2D = { x: event.clientX, y: event.clientY };
+            this.dragEnd2D = { x: event.clientX, y: event.clientY };
+            this.lastMouseX = event.clientX;
+            this.lastMouseY = event.clientY;
+            
+            // 모델 컨트롤 시작 시 카메라 컨트롤 비활성화
+            this.controls.enabled = false;
+            
+            if (this.showDragBox) {
+                this.updateDragBoxDiv();
+                this.dragBoxDiv.style.display = 'block';
+            }
+        } else {
+            // 빈 영역을 클릭한 경우
+            if (this.isPhotoMode && !this.isShiftPressed && !this.dragging) {
+                // 포토 모드에서 shift 키를 누르지 않은 상태이고, 모델을 드래그 중이 아닐 때만 카메라 조작 활성화
+                this.controls.enabled = true;
+                this.controls.onMouseDown(event);
+            }
         }
     }
 
     handleDragMove(event) {
+        // shift 키를 누른 상태에서는 카메라 조작 비활성화
+        if (this.isShiftPressed) {
+            this.controls.enabled = false;
+        }
+
+        if (!this.dragging && !this.selectedModel) {
+            // 드래그 중이 아니고 모델도 선택되지 않은 상태에서
+            if (this.isPhotoMode && !this.isShiftPressed) {
+                // 포토 모드에서 shift 키를 누르지 않은 상태에서만 카메라 조작
+                this.controls.enabled = true;
+                this.controls.onMouseMove(event);
+            }
+            return;
+        }
+
         if (!this.dragging || !this.selectedModel) return;
         
-        // 현재 마우스 위치
+        // 모델 컨트롤 중에는 카메라 컨트롤 비활성화
+        this.controls.enabled = false;
+        
         const currentX = event.clientX;
         const currentY = event.clientY;
         
-        // 마우스 이동량 계산
         const deltaX = currentX - this.lastMouseX;
         const deltaY = currentY - this.lastMouseY;
         
-        // 회전 속도 조절 (값이 클수록 더 빠르게 회전)
-        const rotationSpeed = 0.005;
+        if (this.isPhotoMode && this.isShiftPressed) {
+            // 포토 모드에서 Shift + 드래그로 모델 이동 (x축과 z축만)
+            const moveSpeed = 0.05;
+            this.selectedModel.position.x += deltaX * moveSpeed;
+            this.selectedModel.position.z += deltaY * moveSpeed; // y 대신 z축으로 변경
+        } else {
+            // 일반 회전 모드
+            const rotationSpeed = 0.005;
+            this.selectedModel.rotation.y += deltaX * rotationSpeed;
+            this.selectedModel.rotation.x += deltaY * rotationSpeed;
+            this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
+        }
         
-        // Y축 회전 (좌우)
-        this.selectedModel.rotation.y += deltaX * rotationSpeed;
-        
-        // X축 회전 (상하) - 제한된 범위 내에서만 회전
-        this.selectedModel.rotation.x += deltaY * rotationSpeed;
-        this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
-        
-        // 다음 프레임을 위한 마우스 위치 업데이트
         this.lastMouseX = currentX;
         this.lastMouseY = currentY;
         
@@ -470,7 +469,17 @@ class Scene {
     }
 
     handleDragEnd(event) {
-        if (!this.dragging) return;
+        if (!this.dragging) {
+            if (this.isPhotoMode && !this.isShiftPressed) {
+                // 포토 모드에서 shift 키를 누르지 않은 상태에서만 카메라 조작 종료
+                this.controls.onMouseUp(event);
+                // 모델 컨트롤이 끝난 후에만 카메라 컨트롤 활성화
+                if (!this.selectedModel) {
+                    this.controls.enabled = true;
+                }
+            }
+            return;
+        }
         this.dragging = false;
         if (this.showDragBox) {
             this.dragBoxDiv.style.display = 'none';
@@ -493,32 +502,58 @@ class Scene {
     }
 
     onMouseClick(event) {
-        // 마우스 위치를 정규화된 장치 좌표로 변환
+        // play 중이면 클릭 시 즉시 중단
+        if (this.isPlaying) {
+            this.isPlaying = false;
+            this.showUI();
+            this.playButton.textContent = 'Play';
+            this.returnCameraToOriginalPosition();
+            return;
+        }
+
+        // 포토 모드에서는 카메라 이동 없이 모델 선택만
+        if (this.isPhotoMode) {
+            this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            this.raycaster.setFromCamera(this.mouse, this.camera);
+            const intersects = this.raycaster.intersectObjects(this.models, true);
+            
+            if (intersects.length > 0) {
+                const clicked = this.findParentModel(intersects[0].object);
+                if (clicked && this.selectedModel !== clicked) {
+                    this.selectedModel = clicked;
+                    this.showStats(clicked);
+                }
+            } else {
+                if (this.infoPanel) {
+                    this.scene.remove(this.infoPanel);
+                    this.infoPanel = null;
+                }
+                this.selectedModel = null;
+            }
+            return;
+        }
+
+        // 일반 모드에서는 기존 동작 유지
         this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-        // Raycaster 업데이트
         this.raycaster.setFromCamera(this.mouse, this.camera);
-
-        // 모델과의 교차 확인
         const intersects = this.raycaster.intersectObjects(this.models, true);
 
-        // 모델 클릭 시
         if (intersects.length > 0) {
             const clicked = this.findParentModel(intersects[0].object);
             if (clicked && this.selectedModel !== clicked) {
                 this.moveCameraToModel(clicked);
                 this.showStats(clicked);
             }
-            } else {
-            // 빈 공간 클릭 시
+        } else {
             if (this.infoPanel) {
                 this.scene.remove(this.infoPanel);
                 this.infoPanel = null;
             }
             if (this.selectedModel) this.returnCameraToOriginalPosition();
-            }
         }
+    }
     
     showStats(model) {
         // 이전 패널 제거
@@ -639,13 +674,13 @@ class Scene {
 
         // 모델의 크기에 따라 카메라 거리 계산
         const maxDim = Math.max(size.x, size.y, size.z);
-        const distance = maxDim * 1.5;
+        const distance = maxDim * 1.8;
 
         // 시작 위치와 목표 위치 설정
         this.cameraStartPosition.copy(this.camera.position);
         this.cameraEndPosition.set(
             center.x,
-            center.y + this.jumpHeight, // 점프 높이만큼 카메라 위치를 위로 조정
+            center.y + this.jumpHeight,
             center.z + distance
         );
 
@@ -668,13 +703,36 @@ class Scene {
             });
         }
 
-        // 점프 애니메이션 시작
-        this.startJumpAnimation(model);
+        // shapekey가 있는 모델(sahur, tra)이 아닌 경우에만 점프 애니메이션 시작
+        let hasShapekey = false;
+        model.traverse((child) => {
+            if (child.isMesh && child.morphTargetDictionary) {
+                hasShapekey = true;
+            }
+        });
+
+        if (!hasShapekey) {
+            this.startJumpAnimation(model);
+        }
     }
 
     startJumpAnimation(model) {
+        // 이미 점프 중인 모델이 있다면 중지
+        if (this.isJumping) {
+            this.isJumping = false;
+        }
+
         this.isJumping = true;
         this.jumpStartTime = Date.now();
+
+        // 모델의 초기 위치 저장
+        if (!this.originalPositions.has(model)) {
+            this.originalPositions.set(model, {
+                x: model.position.x,
+                y: model.position.y,
+                z: model.position.z
+            });
+        }
 
         const animateJump = () => {
             if (!this.isJumping) return;
@@ -686,6 +744,8 @@ class Scene {
             // 사인 함수를 사용하여 부드러운 점프 애니메이션 구현
             const jumpProgress = Math.sin(progress * Math.PI);
             const originalY = this.originalPositions.get(model).y;
+            
+            // 일정한 높이로 점프
             model.position.y = originalY + (this.jumpHeight * jumpProgress);
 
             requestAnimationFrame(animateJump);
@@ -765,61 +825,92 @@ class Scene {
     loadModels() {
         const loader = new GLTFLoader();
         
+        // 화면 배치 순서: banini, lirili, sahur, tra
         const modelPaths = [
             'models/banini.glb',
             'models/lirili.glb',
-            'models/sahur.glb',
-            'models/tra.glb'
+            'models/sahur_shapekey.glb',
+            'models/tra_shapekey.glb'
         ];
-
         const names = ['Nubjukchini Bananini', 'Nubchokchoki Jjillillala', 'Juk Juk Juk Juk Juk Juk Juk Juk, Nubzuru', 'Tralululala Nubrulala'];
 
-        modelPaths.forEach((path, index) => {
-            loader.load(
-                path,
-                (gltf) => {
-                    const model = gltf.scene;
-                    model.userData.stats = {
-                        Name:  names[index],
-                        HP:    Math.floor( Math.random() * 200 ) + 50,   // 예시 수치
-                        Attack: Math.floor( Math.random() * 100 ) + 20
+        // Promise를 사용하여 순차적으로 모델 로드
+        const loadModel = (path, index) => {
+            return new Promise((resolve, reject) => {
+                loader.load(
+                    path,
+                    (gltf) => {
+                        const model = gltf.scene;
+                        model.userData.stats = {
+                            Name: names[index],
+                            HP: Math.floor(Math.random() * 200) + 50,
+                            Attack: Math.floor(Math.random() * 100) + 20
                         };
-                    model.userData.label = names[index];  // 클릭 시 표시할 텍스트
-                    // 모델 위치 조정 (간격을 3으로 조정)
-                    model.position.set(index * 3, 0, 0);
-                    
-                    // 모델의 초기 회전값 저장
-                    this.modelInitialRotations.set(model, {
-                        x: model.rotation.x,
-                        y: model.rotation.y,
-                        z: model.rotation.z
-                    });
-                    
-                    // 모델의 모든 메시에 대해 재질 설정
-                    model.traverse((child) => {
-                        if (child.isMesh) {
-                            // 재질이 있다면 설정
-                            if (child.material) {
-                                child.material.needsUpdate = true;
-                                // 재질의 기본 설정
-                                child.material.metalness = 0.5;
-                                child.material.roughness = 0.5;
-                                child.material.envMapIntensity = 1.0;
+                        model.userData.label = names[index];
+                        model.position.set(index * 3, 0, 0);
+                        
+                        this.modelInitialRotations.set(model, {
+                            x: model.rotation.x,
+                            y: model.rotation.y,
+                            z: model.rotation.z
+                        });
+                        
+                        // 모델의 초기 중심점 저장
+                        const box = new THREE.Box3().setFromObject(model);
+                        const center = box.getCenter(new THREE.Vector3());
+                        this.modelInitialCenters.set(model, center.clone());
+                        
+                        model.traverse((child) => {
+                            if (child.isMesh) {
+                                if (child.material) {
+                                    child.material.needsUpdate = true;
+                                    child.material.metalness = 0.5;
+                                    child.material.roughness = 0.5;
+                                    child.material.envMapIntensity = 1.0;
+                                    
+                                    if ((path === 'models/sahur_shapekey.glb' || path === 'models/tra_shapekey.glb') && child.morphTargetDictionary) {
+                                        child.material.morphTargets = true;
+                                        child.material.morphNormals = true;
+                                        
+                                        if (child.morphTargetInfluences) {
+                                            for (let i = 0; i < child.morphTargetInfluences.length; i++) {
+                                                child.morphTargetInfluences[i] = 0;
+                                            }
+                                        }
+                                        
+                                        child.material.needsUpdate = true;
+                                    }
+                                }
                             }
-                        }
-                    });
-                    
-                    this.scene.add(model);
-                    this.models.push(model);
-                },
-                (xhr) => {
-                    console.log((xhr.loaded / xhr.total * 100) + '% loaded');
-                },
-                (error) => {
-                    console.error('An error happened', error);
+                        });
+                        
+                        this.scene.add(model);
+                        this.models.push(model);
+                        resolve();
+                    },
+                    (xhr) => {
+                        console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                    },
+                    (error) => {
+                        console.error('An error happened', error);
+                        reject(error);
+                    }
+                );
+            });
+        };
+
+        // 순차적으로 모델 로드
+        const loadModelsSequentially = async () => {
+            for (let i = 0; i < modelPaths.length; i++) {
+                try {
+                    await loadModel(modelPaths[i], i);
+                } catch (error) {
+                    console.error(`Error loading model ${i}:`, error);
                 }
-            );
-        });
+            }
+        };
+
+        loadModelsSequentially();
     }
 
     onWindowResize() {
@@ -831,7 +922,38 @@ class Scene {
     animate() {
         requestAnimationFrame(() => this.animate());
 
-        // 자동 회전 로직 수정
+        this.shapekeyAnimationTime += this.shapekeySpeed;
+        
+        this.models.forEach(model => {
+            model.traverse((child) => {
+                if (child.isMesh && child.morphTargetDictionary) {
+                    // 사인 함수를 사용하여 0~1 사이의 값으로 정규화
+                    const value = (Math.sin(this.shapekeyAnimationTime) + 1) / 2;
+                    
+                    if (child.name === 'geometry_0') {
+                        // morphTargets 활성화
+                        child.material.morphTargets = true;
+                        child.material.morphNormals = true;
+                        
+                        // 모든 shapekey에 대해 값을 설정
+                        if (child.morphTargetInfluences) {
+                            for (let i = 0; i < child.morphTargetInfluences.length; i++) {
+                                child.morphTargetInfluences[i] = value;
+                            }
+                        }
+                        
+                        // 재질과 geometry 업데이트
+                        child.material.needsUpdate = true;
+                        if (child.geometry) {
+                            child.geometry.attributes.position.needsUpdate = true;
+                            child.geometry.attributes.normal.needsUpdate = true;
+                        }
+                    }
+                }
+            });
+        });
+
+        // 자동 회전 로직
         if (this.autoRotate) {
             this.rotationTime += this.rotationSpeed;
             const rotation = Math.sin(this.rotationTime) * this.rotationRange;
@@ -885,23 +1007,23 @@ class Scene {
     togglePlay() {
         this.isPlaying = !this.isPlaying;
         this.playButton.textContent = this.isPlaying ? 'Stop' : 'Play';
-        
         if (this.isPlaying) {
-            // 재생 시작 시 카메라 트라젝토리 시작
+            this.hideUI();
             this.startCameraTrajectory();
         } else {
-            // 재생 중지 시 카메라를 원위치로
+            this.showUI();
             this.returnCameraToOriginalPosition();
         }
     }
 
     startCameraTrajectory() {
         const startTime = Date.now();
+        const zoomOutDuration = 1000; // 1초 줌아웃
         const rotationDuration = 1500; // 1.5초 회전
         const moveDuration = 500; // 0.5초 이동
         const pauseDuration = 1250; // 1.25초 멈춤
-        const zoomOutDuration = 500; // 0.5초 줌아웃
-        const totalDuration = rotationDuration + (moveDuration + pauseDuration) * this.models.length + zoomOutDuration;
+        const finalZoomOutDuration = 500; // 0.5초 줌아웃
+        const totalDuration = zoomOutDuration + rotationDuration + (moveDuration + pauseDuration) * this.models.length + finalZoomOutDuration;
         const center = new THREE.Vector3(4.5, 0, 0);
         const startPosition = this.camera.position.clone();
         const startTarget = this.controls.target.clone();
@@ -915,163 +1037,340 @@ class Scene {
         const radius = Math.sqrt(dx * dx + dz * dz);
         const startAngle = Math.atan2(dz, dx);
 
-        // 각 모델별 카메라 위치 변화를 위한 배열
-        const cameraPositions = [
-            { x: 0.0, y: 0.1, z: 1.5 },  // 세 번째 모델: 아래에서 보기
-            { x: 0.3, y: 0.2, z: 1.0 },    // 네 번째 모델: 오른쪽 위에서 보기
-            { x: 0.0, y: 0.2, z: 1.5 },  // 첫 번째 모델: 왼쪽에서 보기
-            { x: -0.4, y: 0.3, z: 1.3 }  // 두 번째 모델: 왼쪽 위에서 보기
-        ];
+        // 카메라가 따라갈 모델 순서: sahur, banini, tra, lirili
+        // models의 인덱스: banini(0), lirili(1), sahur(2), tra(3)
+        const cameraModelOrder = [2, 0, 3, 1];
 
         const animate = () => {
-            if (!this.isPlaying) return;
-
+            if (!this.isPlaying) {
+                this.showUI();
+                return;
+            }
             const currentTime = Date.now();
             const elapsedTime = currentTime - startTime;
             if (elapsedTime < totalDuration) {
                 let currentPosition;
                 let currentTarget;
-
-                if (elapsedTime < rotationDuration) {
-                    // 초기 회전 단계
-                    const rotationProgress = elapsedTime / rotationDuration;
+                if (elapsedTime < zoomOutDuration) {
+                    // 초기 줌아웃 단계
+                    const zoomOutProgress = elapsedTime / zoomOutDuration;
+                    // 더 선형적인 이징 함수 사용
+                    const easedProgress = zoomOutProgress;
+                    
+                    // 카메라를 뒤로 이동하고 위에서 아래를 내려다보는 각도로 설정
+                    const targetPosition = new THREE.Vector3(
+                        center.x + Math.cos(startAngle) * (radius + 5),
+                        center.y + 5,
+                        center.z + Math.sin(startAngle) * (radius + 5)
+                    );
+                    
+                    currentPosition = new THREE.Vector3().lerpVectors(
+                        startPosition,
+                        targetPosition,
+                        easedProgress
+                    );
+                    currentTarget = center.clone();
+                } else if (elapsedTime < zoomOutDuration + rotationDuration) {
+                    // 회전 단계
+                    const rotationProgress = (elapsedTime - zoomOutDuration) / rotationDuration;
+                    // 선형적인 회전 진행
                     const angle = startAngle + rotationProgress * Math.PI * 2;
                     currentPosition = new THREE.Vector3(
-                        center.x + Math.cos(angle) * radius,
-                        startPosition.y,
-                        center.z + Math.sin(angle) * radius
+                        center.x + Math.cos(angle) * (radius + 5),
+                        center.y + 5,
+                        center.z + Math.sin(angle) * (radius + 5)
                     );
                     currentTarget = center.clone();
                 } else {
-                    const remainingTime = elapsedTime - rotationDuration;
+                    const remainingTime = elapsedTime - (zoomOutDuration + rotationDuration);
                     const modelDuration = moveDuration + pauseDuration;
                     const currentModelIndex = Math.floor(remainingTime / modelDuration);
-                    
-                    if (currentModelIndex < this.models.length) {
+                    if (currentModelIndex < cameraModelOrder.length) {
                         const modelProgress = (remainingTime % modelDuration) / moveDuration;
-                        
+                        const modelIdx = cameraModelOrder[currentModelIndex];
                         if (modelProgress < 1) {
-                            // 모델로 이동 단계
+                            // 더 부드러운 이징 함수 적용
                             const easedProgress = modelProgress < 0.5
-                                ? 4 * modelProgress * modelProgress * modelProgress
-                                : 1 - Math.pow(-2 * modelProgress + 2, 3) / 2;
-
-                            const model = this.models[currentModelIndex];
+                                ? 2 * modelProgress * modelProgress
+                                : -1 + (4 - 2 * modelProgress) * modelProgress;
+                            const model = this.models[modelIdx];
                             const box = new THREE.Box3().setFromObject(model);
-                            const modelCenter = box.getCenter(new THREE.Vector3());
+                            const initialCenter = this.modelInitialCenters.get(model);
                             const size = box.getSize(new THREE.Vector3());
                             const maxDim = Math.max(size.x, size.y, size.z);
-
-                            // 이전 모델의 위치 계산
+                            const distance = maxDim * 1.8;
+                            
                             let prevPosition;
                             if (currentModelIndex === 0) {
-                                // 첫 번째 모델로 이동할 때는 회전이 끝난 위치에서 시작
-                                const rotationEndAngle = startAngle + Math.PI * 2;
+                                // 회전이 끝난 위치에서 시작
+                                const lastRotationAngle = startAngle + Math.PI * 2;
                                 prevPosition = new THREE.Vector3(
-                                    center.x + Math.cos(rotationEndAngle) * radius,
-                                    startPosition.y,
-                                    center.z + Math.sin(rotationEndAngle) * radius
+                                    center.x + Math.cos(lastRotationAngle) * (radius + 5),
+                                    center.y + 5,
+                                    center.z + Math.sin(lastRotationAngle) * (radius + 5)
                                 );
                             } else {
-                                // 이전 모델의 위치
-                                const prevModel = this.models[currentModelIndex - 1];
+                                const prevModelIdx = cameraModelOrder[currentModelIndex - 1];
+                                const prevModel = this.models[prevModelIdx];
                                 const prevBox = new THREE.Box3().setFromObject(prevModel);
-                                const prevCenter = prevBox.getCenter(new THREE.Vector3());
-                                const prevPos = cameraPositions[currentModelIndex - 1];
+                                const prevInitialCenter = this.modelInitialCenters.get(prevModel);
+                                const prevSize = prevBox.getSize(new THREE.Vector3());
+                                const prevMaxDim = Math.max(prevSize.x, prevSize.y, prevSize.z);
+                                const prevDistance = prevMaxDim * 1.8;
+                                
                                 prevPosition = new THREE.Vector3(
-                                    prevCenter.x + prevPos.x,
-                                    prevCenter.y + prevPos.y,
-                                    prevCenter.z + prevPos.z
+                                    prevInitialCenter.x,
+                                    prevInitialCenter.y + this.jumpHeight,
+                                    prevInitialCenter.z + prevDistance
                                 );
                             }
-
-                            // 현재 모델의 목표 위치
-                            const targetPos = cameraPositions[currentModelIndex];
+                            
                             const targetPosition = new THREE.Vector3(
-                                modelCenter.x + targetPos.x,
-                                modelCenter.y + targetPos.y,
-                                modelCenter.z + targetPos.z
+                                initialCenter.x,
+                                initialCenter.y + this.jumpHeight,
+                                initialCenter.z + distance
                             );
-
+                            
                             currentPosition = new THREE.Vector3().lerpVectors(
                                 prevPosition,
                                 targetPosition,
                                 easedProgress
                             );
                             currentTarget = new THREE.Vector3().lerpVectors(
-                                currentModelIndex === 0 ? center : this.models[currentModelIndex - 1].position,
-                                modelCenter,
+                                currentModelIndex === 0 ? center : this.modelInitialCenters.get(this.models[cameraModelOrder[currentModelIndex - 1]]),
+                                initialCenter,
                                 easedProgress
                             );
                         } else {
-                            // 멈춤 단계
-                            const model = this.models[currentModelIndex];
+                            const model = this.models[modelIdx];
                             const box = new THREE.Box3().setFromObject(model);
-                            const modelCenter = box.getCenter(new THREE.Vector3());
-                            const targetPos = cameraPositions[currentModelIndex];
-
+                            const initialCenter = this.modelInitialCenters.get(model);
+                            const size = box.getSize(new THREE.Vector3());
+                            const maxDim = Math.max(size.x, size.y, size.z);
+                            const distance = maxDim * 1.8;
+                            
                             currentPosition = new THREE.Vector3(
-                                modelCenter.x + targetPos.x,
-                                modelCenter.y + targetPos.y,
-                                modelCenter.z + targetPos.z
+                                initialCenter.x,
+                                initialCenter.y + this.jumpHeight,
+                                initialCenter.z + distance
                             );
-                            currentTarget = modelCenter.clone();
+                            currentTarget = initialCenter.clone();
                         }
-                        
-                        if ( currentModelIndex !== lastModelIndex ) {
-                            this.showStats( this.models[currentModelIndex] );
+                        if (currentModelIndex !== lastModelIndex) {
+                            this.showStats(this.models[modelIdx]);
+                            // shapekey가 있는 모델(sahur, tra)이 아닌 경우에만 점프 애니메이션 시작
+                            let hasShapekey = false;
+                            this.models[modelIdx].traverse((child) => {
+                                if (child.isMesh && child.morphTargetDictionary) {
+                                    hasShapekey = true;
+                                }
+                            });
+                            if (!hasShapekey) {
+                                this.startJumpAnimation(this.models[modelIdx]);
+                            }
                             lastModelIndex = currentModelIndex;
                         }
                     } else {
                         // 마지막 줌아웃 단계
-                        if ( this.infoPanel ) {
-                            this.scene.remove( this.infoPanel );
+                        if (this.infoPanel) {
+                            this.scene.remove(this.infoPanel);
                             this.infoPanel = null;
                         }
-                        const zoomOutProgress = (elapsedTime - (rotationDuration + modelDuration * this.models.length)) / zoomOutDuration;
+                        if (this.isJumping) {
+                            this.isJumping = false;
+                        }
+                        const zoomOutProgress = (elapsedTime - (zoomOutDuration + rotationDuration + modelDuration * cameraModelOrder.length)) / finalZoomOutDuration;
                         const easedProgress = zoomOutProgress < 0.5
-                            ? 4 * zoomOutProgress * zoomOutProgress * zoomOutProgress
-                            : 1 - Math.pow(-2 * zoomOutProgress + 2, 3) / 2;
-
-                        const lastModel = this.models[this.models.length - 1];
-                        const box = new THREE.Box3().setFromObject(lastModel);
-                        const modelCenter = box.getCenter(new THREE.Vector3());
-                        const lastPos = cameraPositions[this.models.length - 1];
-
+                            ? 2 * zoomOutProgress * zoomOutProgress
+                            : -1 + (4 - 2 * zoomOutProgress) * zoomOutProgress;
+                        const lastModelIdx = cameraModelOrder[cameraModelOrder.length - 1];
+                        const lastModel = this.models[lastModelIdx];
+                        const lastBox = new THREE.Box3().setFromObject(lastModel);
+                        const lastInitialCenter = this.modelInitialCenters.get(lastModel);
+                        const size = lastBox.getSize(new THREE.Vector3());
+                        const maxDim = Math.max(size.x, size.y, size.z);
+                        const distance = maxDim * 1.8;
+                        
                         const lastPosition = new THREE.Vector3(
-                            modelCenter.x + lastPos.x,
-                            modelCenter.y + lastPos.y,
-                            modelCenter.z + lastPos.z
+                            lastInitialCenter.x,
+                            lastInitialCenter.y + this.jumpHeight,
+                            lastInitialCenter.z + distance
                         );
-
+                        
                         currentPosition = new THREE.Vector3().lerpVectors(
                             lastPosition,
                             startPosition,
                             easedProgress
                         );
                         currentTarget = new THREE.Vector3().lerpVectors(
-                            modelCenter,
+                            lastInitialCenter,
                             startTarget,
                             easedProgress
                         );
                     }
                 }
-
                 this.camera.position.copy(currentPosition);
                 this.controls.target.copy(currentTarget);
                 this.controls.update();
                 requestAnimationFrame(animate);
             } else {
-                // 애니메이션 완료 후 원래 위치로 복귀
                 this.camera.position.copy(startPosition);
                 this.controls.target.copy(startTarget);
                 this.controls.update();
                 this.isPlaying = false;
                 this.playButton.textContent = 'Play';
+                this.showUI();
+            }
+        };
+        animate();
+    }
+
+    setupMorphing(sourceMesh, targetMesh) {
+        // 두 메쉬의 정점 수가 같은지 확인
+        if (sourceMesh.geometry.attributes.position.count !== targetMesh.geometry.attributes.position.count) {
+            console.error('메쉬의 정점 수가 일치하지 않습니다.');
+            return;
+        }
+
+        // 소스 메쉬에 MorphTarget 추가
+        sourceMesh.morphTargetDictionary = {};
+        sourceMesh.morphTargetInfluences = [];
+
+        // 타겟 메쉬의 위치를 MorphTarget으로 추가
+        const positions = targetMesh.geometry.attributes.position.array;
+        sourceMesh.morphTargetDictionary['target'] = 0;
+        sourceMesh.morphTargetInfluences[0] = 0;
+
+        // MorphTarget 생성
+        const morphTarget = {
+            name: 'target',
+            vertices: new Float32Array(positions)
+        };
+
+        sourceMesh.geometry.morphTargets = [morphTarget];
+        sourceMesh.material.morphTargets = true;
+
+        // 모핑할 메쉬 저장
+        this.morphingMeshes = [sourceMesh, targetMesh];
+    }
+
+    startMorphing() {
+        if (this.morphingMeshes.length !== 2) return;
+        
+        this.isMorphing = true;
+        this.morphingStartTime = Date.now();
+        this.morphingProgress = 0;
+
+        const animate = () => {
+            if (!this.isMorphing) return;
+
+            const currentTime = Date.now();
+            const elapsedTime = currentTime - this.morphingStartTime;
+            this.morphingProgress = Math.min(elapsedTime / this.morphingDuration, 1);
+
+            // 부드러운 이징 함수 적용
+            const easedProgress = this.morphingProgress < 0.5
+                ? 4 * this.morphingProgress * this.morphingProgress * this.morphingProgress
+                : 1 - Math.pow(-2 * this.morphingProgress + 2, 3) / 2;
+
+            // MorphTarget 영향도 업데이트
+            this.morphingMeshes[0].morphTargetInfluences[0] = easedProgress;
+
+            if (this.morphingProgress < 1) {
+                requestAnimationFrame(animate);
+            } else {
+                this.isMorphing = false;
             }
         };
 
         animate();
+    }
+
+    // UI 숨기기/보이기 함수 수정: 플레이 중에는 안내 텍스트도 완전히 사라지게
+    hideUI() {
+        if (!this.uiElements) return;
+        this.uiElements.forEach(el => {
+            if (el && el.tagName === 'BUTTON') el.style.display = 'none';
+        });
+    }
+    showUI() {
+        if (!this.uiElements) return;
+        this.uiElements.forEach(el => {
+            if (el && el.tagName === 'BUTTON') el.style.display = 'block';
+        });
+    }
+
+    togglePhotoMode() {
+        this.isPhotoMode = !this.isPhotoMode;
+        
+        if (this.isPhotoMode) {
+            // 포토 모드 진입
+            this.models.forEach(model => {
+                // 모델의 바운딩 박스 계산
+                const box = new THREE.Box3().setFromObject(model);
+                const size = box.getSize(new THREE.Vector3());
+                const center = box.getCenter(new THREE.Vector3());
+                
+                // 모델의 초기 위치 저장
+                if (!this.originalPositions.has(model)) {
+                    this.originalPositions.set(model, {
+                        x: model.position.x,
+                        y: model.position.y,
+                        z: model.position.z,
+                        scale: model.scale.clone()
+                    });
+                }
+                
+                // 바닥면을 기준으로 스케일 조정
+                const scale = 3;
+                const bottomY = model.position.y - (size.y / 2);
+                const scaleRatio = scale / model.scale.x;
+                
+                // 스케일 적용
+                model.scale.set(scale, scale, scale);
+                
+                // 바닥면 위치 유지를 위한 위치 조정
+                model.position.y = bottomY + (size.y * scale / 2);
+            });
+            
+            // 컨트롤 비활성화
+            this.controls.enabled = false;
+        } else {
+            // 포토 모드 종료
+            this.models.forEach(model => {
+                // 원래 스케일과 위치로 복원
+                const originalPosition = this.originalPositions.get(model);
+                if (originalPosition) {
+                    model.scale.copy(originalPosition.scale);
+                    model.position.set(
+                        originalPosition.x,
+                        originalPosition.y,
+                        originalPosition.z
+                    );
+                }
+            });
+            
+            // 컨트롤 다시 활성화
+            this.controls.enabled = true;
+        }
+    }
+
+    handleKeyDown(event) {
+        if (event.key === 'Shift') {
+            this.isShiftPressed = true;
+            // shift 키를 누르면 카메라 컨트롤 비활성화
+            this.controls.enabled = false;
+        }
+    }
+
+    handleKeyUp(event) {
+        if (event.key === 'Shift') {
+            this.isShiftPressed = false;
+            // shift 키를 떼면 카메라 컨트롤 다시 활성화 (포토 모드이고 드래그 중이 아닐 때만)
+            if (this.isPhotoMode && !this.dragging) {
+                this.controls.enabled = true;
+            }
+        }
     }
 }
 
