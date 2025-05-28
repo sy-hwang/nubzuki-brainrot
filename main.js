@@ -703,7 +703,7 @@ class Scene {
             });
         }
 
-        // shapekey가 있는 모델(sahur)이 아닌 경우에만 점프 애니메이션 시작
+        // shapekey가 있는 모델(sahur, tra)이 아닌 경우에만 점프 애니메이션 시작
         let hasShapekey = false;
         model.traverse((child) => {
             if (child.isMesh && child.morphTargetDictionary) {
@@ -830,7 +830,7 @@ class Scene {
             'models/banini.glb',
             'models/lirili.glb',
             'models/sahur_shapekey.glb',
-            'models/tra.glb'
+            'models/tra_shapekey.glb'
         ];
         const names = ['Nubjukchini Bananini', 'Nubchokchoki Jjillillala', 'Juk Juk Juk Juk Juk Juk Juk Juk, Nubzuru', 'Tralululala Nubrulala'];
 
@@ -868,7 +868,7 @@ class Scene {
                                     child.material.roughness = 0.5;
                                     child.material.envMapIntensity = 1.0;
                                     
-                                    if (path === 'models/sahur_shapekey.glb' && child.morphTargetDictionary) {
+                                    if ((path === 'models/sahur_shapekey.glb' || path === 'models/tra_shapekey.glb') && child.morphTargetDictionary) {
                                         child.material.morphTargets = true;
                                         child.material.morphNormals = true;
                                         
@@ -1037,9 +1037,9 @@ class Scene {
         const radius = Math.sqrt(dx * dx + dz * dz);
         const startAngle = Math.atan2(dz, dx);
 
-        // 카메라가 따라갈 모델 순서: sahur, tra, banini, lirili
+        // 카메라가 따라갈 모델 순서: sahur, banini, tra, lirili
         // models의 인덱스: banini(0), lirili(1), sahur(2), tra(3)
-        const cameraModelOrder = [2, 3, 0, 1];
+        const cameraModelOrder = [2, 0, 3, 1];
 
         const animate = () => {
             if (!this.isPlaying) {
@@ -1158,7 +1158,16 @@ class Scene {
                         }
                         if (currentModelIndex !== lastModelIndex) {
                             this.showStats(this.models[modelIdx]);
-                            this.startJumpAnimation(this.models[modelIdx]);
+                            // shapekey가 있는 모델(sahur, tra)이 아닌 경우에만 점프 애니메이션 시작
+                            let hasShapekey = false;
+                            this.models[modelIdx].traverse((child) => {
+                                if (child.isMesh && child.morphTargetDictionary) {
+                                    hasShapekey = true;
+                                }
+                            });
+                            if (!hasShapekey) {
+                                this.startJumpAnimation(this.models[modelIdx]);
+                            }
                             lastModelIndex = currentModelIndex;
                         }
                     } else {
