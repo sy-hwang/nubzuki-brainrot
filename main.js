@@ -590,40 +590,65 @@ class Scene {
             0xff0000,
             0xff0000
         ];
+
         // 4) Panel 그룹
         const panel = new THREE.Group();
+        const textMeshes = [];
 
-        // 최대 폭 계산용 임시 bbox
         let maxWidth = 0;
+        const lineHeight = 0.3;
+        const totalHeight = lines.length * lineHeight;
 
         // 5) 각 라인마다 TextGeometry, Mesh 생성
         lines.forEach((text, i) => {
             const geo = new TextGeometry(text, {
-            font: this.font,
-            size: 0.08,
-            height: 0.02,
-            curveSegments: 4,
-            bevelEnabled: false
+                font: this.font,
+                size: 0.08,
+                height: 0.02,
+                curveSegments: 4,
+                bevelEnabled: false
             });
             geo.computeBoundingBox();
-            const w = geo.boundingBox.max.x - geo.boundingBox.min.x;
+            const bbox = geo.boundingBox;
+            const w = bbox.max.x - bbox.min.x;
             maxWidth = Math.max(maxWidth, w);
 
             const mat = new THREE.MeshBasicMaterial({ color: colors[i] });
             const mesh = new THREE.Mesh(geo, mat);
 
-            // 각 줄 Y 오프셋: 첫 줄이 위
-            const lineHeight = 0.3;
-            mesh.position.y = - i * lineHeight;
-
-            panel.add(mesh);
+            // 중앙 정렬
+            mesh.position.set(-w / 2, -i * lineHeight, 0.001); // Z 살짝 앞으로
+            textMeshes.push(mesh); // panel에는 나중에 추가
         });
+
+        // 🎯 배경판 생성
+        const paddingX = 0.1;
+        const paddingY = 0.1;
+        const bgWidth = maxWidth + paddingX * 2;
+        const bgHeight = totalHeight + paddingY * 2;
+
+        const bgGeo = new THREE.PlaneGeometry(bgWidth, bgHeight);
+        const bgMat = new THREE.MeshBasicMaterial({
+            color: 0x000000,
+            transparent: true,
+            opacity: 0.5,
+            depthWrite: false
+        });
+        const bgMesh = new THREE.Mesh(bgGeo, bgMat);
+
+        // 배경 중앙 정렬
+        bgMesh.position.set(0, -totalHeight / 2 + lineHeight / 2, -0.01); // Z 살짝 뒤로
+
+        // 🎯 panel에 배경 먼저 추가, 텍스트는 나중에
+        panel.add(bgMesh);
+        textMeshes.forEach(mesh => panel.add(mesh));
 
         // 6) 그룹 전체 가운데 정렬: 왼쪽 정렬이 아니라, 텍스트 시작점이 왼쪽에 딱 붙도록
         panel.children.forEach(child => {
-            // child.geometry.boundingBox 로 offset
-            const bb = child.geometry.boundingBox;
-            child.position.x = - maxWidth/2; 
+            if (child !== bgMesh) {     // 배경은 제외
+                const bb = child.geometry.boundingBox;
+                child.position.x = -maxWidth / 2;
+            }
         });
 
         // 7) 모델의 bounding box 이용해, panel 위치 잡기
@@ -634,7 +659,7 @@ class Scene {
 
         // 살짝 왼쪽으로, 모델 높이 중앙에
         panel.position.set(
-            leftX - 0.4,                  // 모델 옆으로 0.2m 만큼 더 왼쪽
+            leftX - 0.5,                  // 모델 옆으로 0.2m 만큼 더 왼쪽
             topY,                   // 모델 위쪽에서 내려와서
             center.z                      // Z는 모델 중앙과 동일
         );
