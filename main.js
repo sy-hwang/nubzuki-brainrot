@@ -375,12 +375,22 @@ class Scene {
     }
 
     handleDragStart(event) {
+        console.log('=== Drag Start Debug ===');
+        console.log('Event button:', event.button);
+        console.log('Current isPhotoMode:', this.isPhotoMode);
+        console.log('Current isShiftPressed:', this.isShiftPressed);
+        console.log('Current selectedModel:', this.selectedModel);
+        
         // 마우스 왼쪽 버튼만
-        if (event.button !== 0) return;
+        if (event.button !== 0) {
+            console.log('Not left mouse button, returning');
+            return;
+        }
         
         const target = event.target;
         if (target.tagName === 'BUTTON' || target.closest('button') || 
             target === this.rotateButton || target.closest('div[style*="position: absolute"]')) {
+            console.log('Clicked on UI element, returning');
             return;
         }
 
@@ -391,50 +401,81 @@ class Scene {
         const intersects = this.raycaster.intersectObjects(this.models, true);
         
         if (intersects.length > 0) {
+            console.log('Model intersection found');
             // 모델을 클릭한 경우
             if (!this.selectedModel) {
                 this.selectedModel = this.findParentModel(intersects[0].object);
+                console.log('New selectedModel:', this.selectedModel);
             }
             this.dragging = true;
             this.dragStart2D = { x: event.clientX, y: event.clientY };
             this.dragEnd2D = { x: event.clientX, y: event.clientY };
             this.lastMouseX = event.clientX;
             this.lastMouseY = event.clientY;
+            console.log('Drag started:', {
+                start: this.dragStart2D,
+                lastMouse: { x: this.lastMouseX, y: this.lastMouseY }
+            });
             
             // 모델 컨트롤 시작 시 카메라 컨트롤 비활성화
             this.controls.enabled = false;
+            console.log('Controls disabled for model control');
             
             if (this.showDragBox) {
                 this.updateDragBoxDiv();
                 this.dragBoxDiv.style.display = 'block';
+                console.log('Drag box displayed');
             }
         } else {
+            console.log('No model intersection');
             // 빈 영역을 클릭한 경우
             if (this.isPhotoMode && !this.isShiftPressed && !this.dragging) {
+                console.log('Empty space clicked in photo mode');
                 // 포토 모드에서 shift 키를 누르지 않은 상태이고, 모델을 드래그 중이 아닐 때만 카메라 조작 활성화
                 this.controls.enabled = true;
-                this.controls.onMouseDown(event);
+                this.controls.update();
+                console.log('Controls enabled for camera control');
+            } else {
+                console.log('Camera control not enabled:', {
+                    isPhotoMode: this.isPhotoMode,
+                    isShiftPressed: this.isShiftPressed,
+                    dragging: this.dragging
+                });
             }
         }
+        console.log('=== End Drag Start Debug ===');
     }
 
     handleDragMove(event) {
+        console.log('=== Drag Move Debug ===');
+        console.log('Current isPhotoMode:', this.isPhotoMode);
+        console.log('Current isShiftPressed:', this.isShiftPressed);
+        console.log('Current dragging:', this.dragging);
+        console.log('Current selectedModel:', this.selectedModel);
+        
         // shift 키를 누른 상태에서는 카메라 조작 비활성화
         if (this.isShiftPressed) {
+            console.log('Shift pressed, disabling controls');
             this.controls.enabled = false;
         }
 
         if (!this.dragging && !this.selectedModel) {
+            console.log('No drag or selected model');
             // 드래그 중이 아니고 모델도 선택되지 않은 상태에서
             if (this.isPhotoMode && !this.isShiftPressed) {
+                console.log('Camera control in photo mode');
                 // 포토 모드에서 shift 키를 누르지 않은 상태에서만 카메라 조작
                 this.controls.enabled = true;
-                this.controls.onMouseMove(event);
+                // onMouseMove 대신 직접 이벤트 처리
+                this.controls.update();
             }
             return;
         }
 
-        if (!this.dragging || !this.selectedModel) return;
+        if (!this.dragging || !this.selectedModel) {
+            console.log('Invalid drag state, returning');
+            return;
+        }
         
         // 모델 컨트롤 중에는 카메라 컨트롤 비활성화
         this.controls.enabled = false;
@@ -445,17 +486,26 @@ class Scene {
         const deltaX = currentX - this.lastMouseX;
         const deltaY = currentY - this.lastMouseY;
         
+        console.log('Mouse movement:', {
+            current: { x: currentX, y: currentY },
+            delta: { x: deltaX, y: deltaY }
+        });
+        
         if (this.isPhotoMode && this.isShiftPressed) {
+            console.log('Moving model in photo mode');
             // 포토 모드에서 Shift + 드래그로 모델 이동 (x축과 z축만)
             const moveSpeed = 0.05;
             this.selectedModel.position.x += deltaX * moveSpeed;
             this.selectedModel.position.z += deltaY * moveSpeed; // y 대신 z축으로 변경
+            console.log('New model position:', this.selectedModel.position);
         } else {
+            console.log('Rotating model');
             // 일반 회전 모드
             const rotationSpeed = 0.005;
             this.selectedModel.rotation.y += deltaX * rotationSpeed;
             this.selectedModel.rotation.x += deltaY * rotationSpeed;
             this.selectedModel.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, this.selectedModel.rotation.x));
+            console.log('New model rotation:', this.selectedModel.rotation);
         }
         
         this.lastMouseX = currentX;
@@ -463,25 +513,40 @@ class Scene {
         
         if (this.showDragBox) {
             this.updateDragBoxDiv();
+            console.log('Drag box updated');
         }
+        console.log('=== End Drag Move Debug ===');
     }
 
     handleDragEnd(event) {
+        console.log('=== Drag End Debug ===');
+        console.log('Current isPhotoMode:', this.isPhotoMode);
+        console.log('Current isShiftPressed:', this.isShiftPressed);
+        console.log('Current dragging:', this.dragging);
+        console.log('Current selectedModel:', this.selectedModel);
+        
         if (!this.dragging) {
             if (this.isPhotoMode && !this.isShiftPressed) {
-                // 포토 모드에서 shift 키를 누르지 않은 상태에서만 카메라 조작 종료
-                this.controls.onMouseUp(event);
+                console.log('Ending camera control in photo mode');
+                // onMouseUp 대신 직접 이벤트 처리
+                this.controls.update();
                 // 모델 컨트롤이 끝난 후에만 카메라 컨트롤 활성화
                 if (!this.selectedModel) {
                     this.controls.enabled = true;
+                    console.log('Controls enabled after camera control end');
                 }
             }
             return;
         }
+        
         this.dragging = false;
+        console.log('Drag ended');
+        
         if (this.showDragBox) {
             this.dragBoxDiv.style.display = 'none';
+            console.log('Drag box hidden');
         }
+        console.log('=== End Drag End Debug ===');
     }
 
     updateDragBoxDiv() {
@@ -743,11 +808,23 @@ class Scene {
 
         // 모델의 초기 위치 저장
         if (!this.originalPositions.has(model)) {
-            this.originalPositions.set(model, {
+            const originalState = {
                 x: model.position.x,
                 y: model.position.y,
-                z: model.position.z
-            });
+                z: model.position.z,
+                scale: {
+                    x: model.scale.x,
+                    y: model.scale.y,
+                    z: model.scale.z
+                },
+                rotation: {
+                    x: model.rotation.x,
+                    y: model.rotation.y,
+                    z: model.rotation.z
+                }
+            };
+            this.originalPositions.set(model, originalState);
+            console.log('Saved original position for model:', originalState);
         }
 
         // shapekey가 있는 모델(sahur, tra)이 아닌 경우에만 점프 애니메이션 시작
@@ -775,11 +852,23 @@ class Scene {
 
         // 모델의 초기 위치 저장
         if (!this.originalPositions.has(model)) {
-            this.originalPositions.set(model, {
+            const originalState = {
                 x: model.position.x,
                 y: model.position.y,
-                z: model.position.z
-            });
+                z: model.position.z,
+                scale: {
+                    x: model.scale.x,
+                    y: model.scale.y,
+                    z: model.scale.z
+                },
+                rotation: {
+                    x: model.rotation.x,
+                    y: model.rotation.y,
+                    z: model.rotation.z
+                }
+            };
+            this.originalPositions.set(model, originalState);
+            console.log('Saved original position for model:', originalState);
         }
 
         const animateJump = () => {
@@ -1300,36 +1389,58 @@ class Scene {
     }
 
     togglePhotoMode() {
+        console.log('=== togglePhotoMode Debug ===');
+        console.log('Current isPhotoMode:', this.isPhotoMode);
+        console.log('Current selectedModel:', this.selectedModel);
+        
         this.isPhotoMode = !this.isPhotoMode;
+        console.log('New isPhotoMode:', this.isPhotoMode);
         
         // Play 버튼 비활성화/활성화
         if (this.playButton) {
             this.playButton.disabled = this.isPhotoMode;
             this.playButton.style.opacity = this.isPhotoMode ? '0.5' : '1';
             this.playButton.style.cursor = this.isPhotoMode ? 'not-allowed' : 'pointer';
+            console.log('Play button state updated:', {
+                disabled: this.playButton.disabled,
+                opacity: this.playButton.style.opacity,
+                cursor: this.playButton.style.cursor
+            });
         }
         
         if (this.isPhotoMode) {
+            console.log('Entering Photo Mode');
             // 포토 모드 진입
             this.models.forEach(model => {
+                console.log('Processing model:', model);
                 // 모델의 바운딩 박스 계산
                 const box = new THREE.Box3().setFromObject(model);
                 const size = box.getSize(new THREE.Vector3());
                 const center = box.getCenter(new THREE.Vector3());
+                console.log('Model bounds:', {
+                    size: size,
+                    center: center
+                });
                 
                 // 모델의 초기 위치 저장
                 if (!this.originalPositions.has(model)) {
-                    this.originalPositions.set(model, {
+                    const originalState = {
                         x: model.position.x,
                         y: model.position.y,
                         z: model.position.z,
-                        scale: model.scale.clone(),
+                        scale: {
+                            x: model.scale.x,
+                            y: model.scale.y,
+                            z: model.scale.z
+                        },
                         rotation: {
                             x: model.rotation.x,
                             y: model.rotation.y,
                             z: model.rotation.z
                         }
-                    });
+                    };
+                    this.originalPositions.set(model, originalState);
+                    console.log('Saved original position for model:', originalState);
                 }
                 
                 // 바닥면을 기준으로 스케일 조정
@@ -1342,17 +1453,28 @@ class Scene {
                 
                 // 바닥면 위치 유지를 위한 위치 조정
                 model.position.y = bottomY + (size.y * scale / 2);
+                console.log('Model transformed:', {
+                    newScale: model.scale,
+                    newPosition: model.position
+                });
             });
             
             // 컨트롤 비활성화
             this.controls.enabled = false;
+            console.log('Controls disabled');
         } else {
+            console.log('Exiting Photo Mode');
             // 포토 모드 종료
             this.models.forEach(model => {
+                console.log('Restoring model:', model);
                 // 원래 스케일, 위치, 회전값으로 복원
                 const originalPosition = this.originalPositions.get(model);
                 if (originalPosition) {
-                    model.scale.copy(originalPosition.scale);
+                    model.scale.set(
+                        originalPosition.scale.x,
+                        originalPosition.scale.y,
+                        originalPosition.scale.z
+                    );
                     model.position.set(
                         originalPosition.x,
                         originalPosition.y,
@@ -1363,29 +1485,57 @@ class Scene {
                         originalPosition.rotation.y,
                         originalPosition.rotation.z
                     );
+                    console.log('Model restored to:', {
+                        scale: model.scale,
+                        position: model.position,
+                        rotation: model.rotation
+                    });
+                } else {
+                    console.log('No original position found for model');
                 }
             });
             
             // 컨트롤 다시 활성화
             this.controls.enabled = true;
+            console.log('Controls enabled');
         }
+        console.log('=== End togglePhotoMode Debug ===');
     }
 
     handleKeyDown(event) {
         if (event.key === 'Shift') {
+            console.log('=== Shift Key Down Debug ===');
+            console.log('Current isPhotoMode:', this.isPhotoMode);
+            console.log('Current controls.enabled:', this.controls.enabled);
+            
             this.isShiftPressed = true;
             // shift 키를 누르면 카메라 컨트롤 비활성화
             this.controls.enabled = false;
+            
+            console.log('Shift pressed, controls disabled');
+            console.log('=== End Shift Key Down Debug ===');
         }
     }
 
     handleKeyUp(event) {
         if (event.key === 'Shift') {
+            console.log('=== Shift Key Up Debug ===');
+            console.log('Current isPhotoMode:', this.isPhotoMode);
+            console.log('Current dragging:', this.dragging);
+            console.log('Current controls.enabled:', this.controls.enabled);
+            
             this.isShiftPressed = false;
             // shift 키를 떼면 카메라 컨트롤 다시 활성화 (포토 모드이고 드래그 중이 아닐 때만)
             if (this.isPhotoMode && !this.dragging) {
                 this.controls.enabled = true;
+                console.log('Shift released, controls enabled');
+            } else {
+                console.log('Controls remain disabled:', {
+                    isPhotoMode: this.isPhotoMode,
+                    dragging: this.dragging
+                });
             }
+            console.log('=== End Shift Key Up Debug ===');
         }
     }
 }
